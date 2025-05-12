@@ -4,13 +4,17 @@
         <!--Vertex Shader-->
         <script type="x-shader/x-vertex" id="vshader">
             attribute vec4 aPosition;
+            attribute vec2 aTexCoord;
             
             uniform mat4 uModelMatrix;
             uniform mat4 uViewMatrix;
             uniform mat4 uProjectionMatrix;
+            
+            varying vec2 vTexCoord;
 
             void main() {
                 gl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * aPosition;
+                vTexCoord = aTexCoord;
             }
         </script>
 
@@ -19,9 +23,17 @@
             precision mediump float;
 
             uniform vec4 u_color;
+            varying vec2 vTexCoord;
+            uniform sampler2D uSampler;
+
+            uniform bool uUseTexture;
 
             void main(void) {
-                gl_FragColor = u_color;
+                if (uUseTexture) {
+                    gl_FragColor = texture2D(uSampler, vTexCoord);
+                } else {
+                    gl_FragColor = u_color;
+                }
             }
         </script>
 
@@ -48,9 +60,12 @@
                 gl.useProgram(program);
 
                 var aPositionPointer = gl.getAttribLocation(program, "aPosition");
+                var aTexCoordPointer = gl.getAttribLocation(program, "aTexCoord")
                 gl.enableVertexAttribArray(aPositionPointer);
+                gl.enableVertexAttribArray(aTexCoordPointer);
 
                 var colorLocation = gl.getUniformLocation(program, "u_color");
+
                 
                 var uModelMatrixPointer = gl.getUniformLocation(program, "uModelMatrix");
                 var uViewMatrixPointer = gl.getUniformLocation(program, "uViewMatrix");
@@ -72,7 +87,7 @@
 
                 // View Matrix Specification
                 var lookAtPoint = [0.0,0.0,0.0,1.0];              //where the camera is looking
-                var eyePoint    = [3.0,4.0,5.0,1.0];              //where the camera is placed
+                var eyePoint    = [1.0,2.0,3.0,1.0];              //where the camera is placed
                 var upVector    = [0.0,1.0,0.0,0.0];              //orientation of the camera
 
                 viewMatrix = mat4.create();
@@ -237,6 +252,14 @@
                     1, 12, 14, 	1, 14, 5, 	1, 5, 9
                 ]
 
+                // D8 Number Texture
+                var diceSixUVFace = [
+                    0.0, 1.0,
+                    1.0, 1.0,
+                    0.0, 0.0,
+                    1.0, 0.0,
+                ]
+
                 // Edge Outlines
                 // D4 Edge Outlines
                 var diceFourEdges = [
@@ -366,12 +389,107 @@
                 gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint8Array(diceTwelveIndices), gl.STATIC_DRAW);
                 gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
 
-                
                 gl.clearColor(0.5,0.5,0.5,1.0);
                 gl.clear(gl.COLOR_BUFFER_BIT);
                 gl.enable(gl.DEPTH_TEST);
                 
                 let currentDice = "diceFour";
+
+                // Texture Loader
+                function textureLoader(gl, source, onLoadCallback) {
+                    const texture = gl.createTexture();
+                    const image = new Image();
+                    image.crossOrigin = "anonymous";
+                    image.src = source;
+
+                    image.onload = function () {
+                        gl.bindTexture(gl.TEXTURE_2D, texture);
+                        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+                        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+
+                        onLoadCallback(texture); // Call back with the loaded texture
+                    };
+
+                    return texture;
+                }
+
+                let loadedTextures = {};
+                let texturesLoaded = 0;
+
+                function onTextureLoaded(name, tex) {
+                    loadedTextures[name] = tex;
+                    texturesLoaded++;
+
+                    if (texturesLoaded === 2) {
+                        drawScene(); // Only render once both textures are ready
+                    }
+                }
+
+                textureLoader(gl, "images/one.png", (tex) => onTextureLoaded("front", tex));
+                textureLoader(gl, "images/six.png", (tex) => onTextureLoaded("back", tex));
+                textureLoader(gl, "images/two.png", (tex) => onTextureLoaded("top", tex));
+                textureLoader(gl, "images/five.png", (tex) => onTextureLoaded("bottom", tex));
+                textureLoader(gl, "images/three.png", (tex) => onTextureLoaded("right", tex));
+                textureLoader(gl, "images/four.png", (tex) => onTextureLoaded("left", tex));
+
+                // For preventing the textures in being rendered in different dice
+                function createBlankTexture(gl) {
+                    const texture = gl.createTexture();
+                    gl.bindTexture(gl.TEXTURE_2D, texture);
+
+                    const blankPixel = new Uint8Array([0, 0, 0, 0]); // Transparent
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, blankPixel);
+
+                    return texture;
+                }
+
+                const blankTexture = createBlankTexture(gl);
+
+                var diceSixFaceFront = [
+                    -0.25,  0.25,  0.26, 1.0,
+                    0.25,  0.25,  0.26, 1.0,
+                    -0.25, -0.25,  0.26, 1.0,
+                    0.25, -0.25,  0.26, 1.0
+                ];
+
+                var diceSixFaceBack = [
+                    0.25,  0.25, -0.26, 1.0,
+                    -0.25,  0.25, -0.26, 1.0,
+                    0.25, -0.25, -0.26, 1.0,
+                    -0.25, -0.25, -0.26, 1.0
+                ]
+
+                var diceSixFaceTop = [
+                    -0.25,  0.26,  0.25, 1.0,
+                    -0.25,  0.26, -0.25, 1.0,
+                    0.25,  0.26,  0.25, 1.0,
+                    0.25,  0.26, -0.25, 1.0
+                ]
+
+                var diceSixFaceBottom = [
+                    -0.25, -0.26,  0.25, 1.0,
+                    0.25, -0.26,  0.25, 1.0,
+                    -0.25, -0.26, -0.25, 1.0,
+                    0.25, -0.26, -0.25, 1.0,
+                ]
+
+                var diceSixFaceRight = [
+                    0.26, -0.25,  0.25, 1.0,
+                    0.26,  0.25,  0.25, 1.0,
+                    0.26, -0.25, -0.25, 1.0,
+                    0.26,  0.25, -0.25, 1.0,
+                ]
+
+                var diceSixFaceLeft = [
+                    -0.26,  0.25,  0.25, 1.0,
+                    -0.26, -0.25,  0.25, 1.0,
+                    -0.26,  0.25, -0.25, 1.0,
+                    -0.26, -0.25, -0.25, 1.0,
+                ]
+                
 
                 // Initial Rendering (of D4)
                 gl.bindBuffer(gl.ARRAY_BUFFER, diceFourBuffer);
@@ -388,11 +506,11 @@
                 function animate() {
 
                     if (isRotating) {
-                    mat4.rotate(modelMatrix, modelMatrix, rotationSpeed, [0, 1, 0]);
+                    mat4.rotate(modelMatrix, modelMatrix, rotationSpeed, [1, 0, 0]);
                     gl.uniformMatrix4fv(uModelMatrixPointer, false, modelMatrix);
 
-                    // mat4.rotate(modelMatrix, modelMatrix, rotationSpeed, [1, 0, 0]);
-                    // gl.uniformMatrix4fv(uModelMatrixPointer, false, modelMatrix);
+                    mat4.rotate(modelMatrix, modelMatrix, rotationSpeed, [0, 0, 1]);
+                    gl.uniformMatrix4fv(uModelMatrixPointer, false, modelMatrix);
                     }
 
                     drawScene();
@@ -407,8 +525,20 @@
                     gl.uniformMatrix4fv(uModelMatrixPointer, false, modelMatrix);
                     
 
+                    // === Setup Buffers ===
+                    const positionBuffer = gl.createBuffer();
+                    const uvBuffer = gl.createBuffer();
+
+                    gl.bindBuffer(gl.ARRAY_BUFFER, uvBuffer);
+                    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSixUVFace), gl.STATIC_DRAW);
+                    gl.enableVertexAttribArray(aTexCoordPointer);
+                    gl.vertexAttribPointer(aTexCoordPointer, 2, gl.FLOAT, false, 0, 0);
+
+                    
                     //draw part
                     if (currentDice == "diceFour") {
+                        gl.uniform1i(gl.getUniformLocation(program, "uUseTexture"), false);
+                        
                         gl.bindBuffer(gl.ARRAY_BUFFER, diceFourBuffer);
                         gl.vertexAttribPointer(aPositionPointer, 4, gl.FLOAT, false, 0, 0);
 
@@ -419,20 +549,88 @@
                         gl.uniform4f(colorLocation,1.0,1.0,1.0,1.0);
                         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, diceFourEdgesBuffer);
                         gl.drawElements(gl.LINES, diceFourEdges.length, gl.UNSIGNED_BYTE, 0);
+
+                        gl.activeTexture(gl.TEXTURE0);
+                        gl.bindTexture(gl.TEXTURE_2D, blankTexture);
+                        gl.uniform1i(gl.getUniformLocation(program, "uSampler"), 0);
                         
                     } else if (currentDice == "diceSix") {
+                        gl.uniform1i(gl.getUniformLocation(program, "uUseTexture"), false);
+
                         gl.bindBuffer(gl.ARRAY_BUFFER, diceSixBuffer);
                         gl.vertexAttribPointer(aPositionPointer, 4, gl.FLOAT, false, 0, 0);
 
-                        gl.uniform4f(colorLocation,0.3,0.7,0.3,1.0);
+                        gl.uniform4f(colorLocation,0.0,0.0,0.0,1.0);
                         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, diceSixIndicesBuffer);
                         gl.drawElements(gl.TRIANGLES, diceSixIndices.length, gl.UNSIGNED_BYTE, 0);
 
                         gl.uniform4f(colorLocation,1.0,1.0,1.0,1.0);
                         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, diceSixEdgesBuffer);
                         gl.drawElements(gl.LINES, diceSixEdges.length, gl.UNSIGNED_BYTE, 0);
+
+                        // Rendering Texture ==================================================================
+                        // === FRONT FACE ===
+                        gl.uniform1i(gl.getUniformLocation(program, "uUseTexture"), true);
+
+                        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+                        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSixFaceFront), gl.STATIC_DRAW);
+                        gl.enableVertexAttribArray(aPositionPointer);
+                        gl.vertexAttribPointer(aPositionPointer, 4, gl.FLOAT, false, 0, 0);
+
+                        gl.activeTexture(gl.TEXTURE0);
+                        gl.bindTexture(gl.TEXTURE_2D, loadedTextures["front"]);
+                        gl.uniform1i(gl.getUniformLocation(program, "uSampler"), 0);
+
+                        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+                        // === BACK FACE ===
+                        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSixFaceBack), gl.STATIC_DRAW);
+
+                        gl.activeTexture(gl.TEXTURE0);
+                        gl.bindTexture(gl.TEXTURE_2D, loadedTextures["back"]);
+                        gl.uniform1i(gl.getUniformLocation(program, "uSampler"), 0);
+
+                        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+                        // === TOP FACE ===
+                        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSixFaceTop), gl.STATIC_DRAW);
+
+                        gl.activeTexture(gl.TEXTURE0);
+                        gl.bindTexture(gl.TEXTURE_2D, loadedTextures["top"]);
+                        gl.uniform1i(gl.getUniformLocation(program, "uSampler"), 0);
+
+                        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+                        // === BOTTOM FACE ===
+                        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSixFaceBottom), gl.STATIC_DRAW);
+
+                        gl.activeTexture(gl.TEXTURE0);
+                        gl.bindTexture(gl.TEXTURE_2D, loadedTextures["bottom"]);
+                        gl.uniform1i(gl.getUniformLocation(program, "uSampler"), 0);
+                        
+                        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+                        
+                        // === RIGHT FACE ===
+                        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSixFaceRight), gl.STATIC_DRAW);
+
+                        gl.activeTexture(gl.TEXTURE0);
+                        gl.bindTexture(gl.TEXTURE_2D, loadedTextures["right"]);
+                        gl.uniform1i(gl.getUniformLocation(program, "uSampler"), 0);
+                        
+                        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+                        // === LEFT FACE ===
+                        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSixFaceLeft), gl.STATIC_DRAW);
+
+                        gl.activeTexture(gl.TEXTURE0);
+                        gl.bindTexture(gl.TEXTURE_2D, loadedTextures["left"]);
+                        gl.uniform1i(gl.getUniformLocation(program, "uSampler"), 0);
+                        
+                        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
                         
                     } else if (currentDice == "diceEight") {
+                        gl.uniform1i(gl.getUniformLocation(program, "uUseTexture"), false);
+
                         gl.bindBuffer(gl.ARRAY_BUFFER, diceEightBuffer);
                         gl.vertexAttribPointer(aPositionPointer, 4, gl.FLOAT, false, 0, 0);
 
@@ -444,7 +642,13 @@
                         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, diceEightEdgesBuffer);
                         gl.drawElements(gl.LINES, diceEightEdges.length, gl.UNSIGNED_BYTE, 0);
 
+                        gl.activeTexture(gl.TEXTURE0);
+                        gl.bindTexture(gl.TEXTURE_2D, blankTexture);
+                        gl.uniform1i(gl.getUniformLocation(program, "uSampler"), 0);
+
                     } else if (currentDice== "diceTwelve") {
+                        gl.uniform1i(gl.getUniformLocation(program, "uUseTexture"), false);
+
                         gl.bindBuffer(gl.ARRAY_BUFFER, diceTwelveBuffer);
                         gl.vertexAttribPointer(aPositionPointer, 3, gl.FLOAT, false, 0, 0);
 
@@ -455,6 +659,10 @@
                         gl.uniform4f(colorLocation,1.0,1.0,1.0,1.0);
                         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, diceTwelveEdgesBuffer);
                         gl.drawElements(gl.LINES, diceTwelveEdges.length, gl.UNSIGNED_BYTE, 0);
+
+                        gl.activeTexture(gl.TEXTURE0);
+                        gl.bindTexture(gl.TEXTURE_2D, blankTexture);
+                        gl.uniform1i(gl.getUniformLocation(program, "uSampler"), 0);
                     }
 
                 }

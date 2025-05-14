@@ -818,8 +818,7 @@
                     mat4.rotate(modelMatrix, modelMatrix, rotationSpeed, [1, 0, 0]);
                     gl.uniformMatrix4fv(uModelMatrixPointer, false, modelMatrix);
 
-                    mat4.rotate(modelMatrix, modelMatrix, rotationSpeed, [0, 0, 1]);
-                    gl.uniformMatrix4fv(uModelMatrixPointer, false, modelMatrix);
+                    
                     }
 
                     drawScene();

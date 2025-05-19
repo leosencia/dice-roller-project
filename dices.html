@@ -25,7 +25,7 @@
                 gap: 5px;
             }
             .diceBtn{
-                width: 50px;
+                width: 70px;
             }
         </style>
         <!--Vertex Shader-->
@@ -83,6 +83,10 @@
                 const CYLINDER_RADIUS = 2.0;   // Radius of the cylinder and floor
                 const CYLINDER_HEIGHT = 8.0;   // Conceptual height of the invisible cylinder
                 const FLOOR_Y = -0.5;         // Y-position of the floor
+                const MAX_DICE = 2;           // Maximum number of dice allowed
+
+                // Dice management
+                let diceList = []; 
 
                 // Rendering Context
                 var gl = initializeWebGL(canvas,true);
@@ -818,7 +822,8 @@
                     mat4.rotate(modelMatrix, modelMatrix, rotationSpeed, [1, 0, 0]);
                     gl.uniformMatrix4fv(uModelMatrixPointer, false, modelMatrix);
 
-                    
+                    mat4.rotate(modelMatrix, modelMatrix, rotationSpeed, [0, 0, 1]);
+                    gl.uniformMatrix4fv(uModelMatrixPointer, false, modelMatrix);
                     }
 
                     drawScene();
@@ -855,19 +860,33 @@
 
                     // --- Restore Dice Model Matrix and Draw Dice ---
                     gl.uniformMatrix4fv(uModelMatrixPointer, false, modelMatrix); // Restore original modelMatrix for dice
-                    
-                    // === Setup Buffers ===
-                    const positionBuffer = gl.createBuffer();
-                    const uvBuffer = gl.createBuffer();
 
-                    gl.bindBuffer(gl.ARRAY_BUFFER, uvBuffer);
-                    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSixUVFace), gl.STATIC_DRAW);
-                    gl.enableVertexAttribArray(aTexCoordPointer);
-                    gl.vertexAttribPointer(aTexCoordPointer, 2, gl.FLOAT, false, 0, 0);
+                    // Draw all dice in the diceList
+                    for(let i=0; i<diceList.length; i++){
+                        const dice = diceList[i];
+                        
+                        // calculate position for the die
+                        //**spread dice on the floor
+                        const angle = (i/diceList.length)*Math.PI*2;
+                        const radius = 0.5;
+                        const x = Math.cos(angle) * radius;
+                        const z = Math.sin(angle) * radius;
+                        
+                        // create model matrix for the die
+                        const diceModelMatrix = mat4.create();
+                        mat4.translate(diceModelMatrix, diceModelMatrix, [x, 0, z]);
+                        mat4.multiply(diceModelMatrix, diceModelMatrix, modelMatrix);
+                        gl.uniformMatrix4fv(uModelMatrixPointer, false, diceModelMatrix);
 
+                        if (dice.type === "diceFour") drawD4();
+                        else if (dice.type === "diceSix") drawD6();
+                        else if (dice.type === "diceEight") drawD8();
+                        else if (dice.type === "diceTwelve") drawD12();
+                      
+                    }
                     
                     //draw part
-                    if (currentDice == "diceFour") {
+                    function drawD4() {
                         gl.uniform1i(gl.getUniformLocation(program, "uUseTexture"), false);
                         
                         // Draw solid D4 base
@@ -907,7 +926,9 @@
                             gl.drawArrays(gl.TRIANGLES, 0, 3); // Each face is 3 vertices
                         }
                         
-                    } else if (currentDice == "diceSix") {
+                    } 
+                    
+                    function drawD6() {
                         gl.uniform1i(gl.getUniformLocation(program, "uUseTexture"), false);
 
                         gl.bindBuffer(gl.ARRAY_BUFFER, diceSixBuffer);
@@ -920,11 +941,20 @@
                         gl.uniform4f(colorLocation,1.0,1.0,1.0,1.0);
                         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, diceSixEdgesBuffer);
                         gl.drawElements(gl.LINES, diceSixEdges.length, gl.UNSIGNED_BYTE, 0);
-
+                        
                         // Rendering Texture ==================================================================
                         // === FRONT FACE ===
                         gl.uniform1i(gl.getUniformLocation(program, "uUseTexture"), true);
 
+                        // === Setup Buffers ===
+                        const positionBuffer = gl.createBuffer();
+                        const uvBuffer = gl.createBuffer();
+
+                        gl.bindBuffer(gl.ARRAY_BUFFER, uvBuffer);
+                        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSixUVFace), gl.STATIC_DRAW);
+                        gl.enableVertexAttribArray(aTexCoordPointer);
+                        gl.vertexAttribPointer(aTexCoordPointer, 2, gl.FLOAT, false, 0, 0);
+                            
                         gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
                         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSixFaceFront), gl.STATIC_DRAW);
                         gl.enableVertexAttribArray(aPositionPointer);
@@ -981,7 +1011,9 @@
                         
                         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
                         
-                    } else if (currentDice == "diceEight") {
+                    }
+                    
+                    function drawD8() {
                         gl.uniform1i(gl.getUniformLocation(program, "uUseTexture"), false);
 
                         // Draw solid D8 base
@@ -1023,7 +1055,9 @@
                             // Draw the face
                             gl.drawArrays(gl.TRIANGLES, 0, 3); // Each face is 3 vertices
                         }
-                    } else if (currentDice== "diceTwelve") {
+                    }
+                    
+                    function drawD12() {
                         gl.uniform1i(gl.getUniformLocation(program, "uUseTexture"), false);
                     
                         // Draw solid D12 base
@@ -1066,14 +1100,33 @@
 
                 }
                                         
-                function changeDice(dice) {
-                    currentDice = dice;
+                // function changeDice(dice) {
+                //     currentDice = dice;
+                // }
+
+                function addDice(type){
+                    if(diceList.length >= MAX_DICE){
+                        alert(`Maximum of ${MAX_DICE} dice allowed!`);
+                        return;
+                    }
+                    
+                    diceList.push({
+                        type: type,
+                        index: diceList.length
+                    });
                 }
 
-                document.getElementById("diceFourBtn").addEventListener("click", () => changeDice("diceFour"));
-                document.getElementById("diceSixBtn").addEventListener("click", () => changeDice("diceSix"));
-                document.getElementById("diceEightBtn").addEventListener("click", () => changeDice("diceEight"));
-                document.getElementById("diceTwelveBtn").addEventListener("click", () => changeDice("diceTwelve"));
+                function removeDice(){
+                    if(diceList.length > 0){
+                        diceList.pop();
+                    }
+                }
+
+                document.getElementById("diceFourBtn").addEventListener("click", () => addDice("diceFour"));
+                document.getElementById("diceSixBtn").addEventListener("click", () => addDice("diceSix"));
+                document.getElementById("diceEightBtn").addEventListener("click", () => addDice("diceEight"));
+                document.getElementById("diceTwelveBtn").addEventListener("click", () => addDice("diceTwelve"));
+                document.getElementById("removeDiceBtn").addEventListener("click", removeDice);
 
                 // drawScene(); // Removed: Initial draw is now handled by onTextureLoaded
                 // animate();   // Removed: Animation starts after textures load
@@ -1089,6 +1142,7 @@
             <button class="diceBtn" id="diceSixBtn">D6</button>
             <button class="diceBtn" id="diceEightBtn">D8</button>
             <button class="diceBtn" id="diceTwelveBtn" >D12</button>
+            <button class="diceBtn" id="removeDiceBtn">Remove</button>
         </div>
     </body>
 </html>

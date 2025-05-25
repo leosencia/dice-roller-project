@@ -2486,6 +2486,10 @@
                     ];
                 }
 
+                const highRollSound = new Audio('high-roll.mp3');
+                highRollSound.volume = 1.0;
+                highRollSound.play();
+
                 function animateHighRoll() {
                     const elapsed = Date.now() - startTime;
 

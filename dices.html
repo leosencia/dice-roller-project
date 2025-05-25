@@ -46,16 +46,40 @@
     <script type="x-shader/x-vertex" id="vshader">
             attribute vec4 aPosition;
             attribute vec2 aTexCoord;
+            attribute vec4 aNormal;
             
             uniform mat4 uModelMatrix;
             uniform mat4 uViewMatrix;
             uniform mat4 uProjectionMatrix;
+            uniform mat4 uNormalMatrix;
+
+            uniform vec4 uMaterialDiffuseColor;
+            uniform vec4 uMaterialAmbientColor;
+
+            uniform vec4 uLightDiffuseColor;
+            uniform vec4 uLightAmbientColor;
+
+            uniform vec4 uLightDirectionVector;
+
+            varying vec4 vDiffuseColor;
             
             varying vec2 vTexCoord;
 
-            void main() {
+           void main() {
                 gl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * aPosition;
                 vTexCoord = aTexCoord;
+
+                vec4 corrected_aNormal = uNormalMatrix * aNormal;
+
+                vec4 normalized_aNormalVector = normalize(corrected_aNormal);
+                vec4 normalized_uLightDirectionVector = normalize(uLightDirectionVector);
+
+                float lambertCoefficient = max(dot(-normalized_uLightDirectionVector,normalized_aNormalVector),0.0);
+
+                vec4 diffuseColor =  uMaterialDiffuseColor * uLightDiffuseColor * lambertCoefficient;                
+                vec4 ambientColor = uMaterialAmbientColor * uLightAmbientColor;
+
+                vDiffuseColor = ambientColor + diffuseColor;
             }
         </script>
 
@@ -66,14 +90,15 @@
             uniform vec4 u_color;
             varying vec2 vTexCoord;
             uniform sampler2D uSampler;
+            varying vec4 vDiffuseColor;
 
             uniform bool uUseTexture;
 
             void main(void) {
                 if (uUseTexture) {
-                    gl_FragColor = texture2D(uSampler, vTexCoord);
+                    gl_FragColor = texture2D(uSampler, vTexCoord) * vDiffuseColor;
                 } else {
-                    gl_FragColor = u_color;
+                    gl_FragColor = u_color * vDiffuseColor;
                 }
             }
         </script>
@@ -109,6 +134,16 @@
             const FLOOR_Y = -0.5;         // Y-position of the floor
             const MAX_DICE = 2;           // Maximum number of dice allowed
 
+            // Highroll management
+            const maxDiceValues = {
+                diceFour: 4,
+                diceSix: 6,
+                diceEight: 8,
+                diceTwelve: 12
+            };
+
+            let highRollActive = false;
+
             // Dice management
             let diceList = [];
 
@@ -120,17 +155,30 @@
             var program = initializeProgram(gl, vertexShader, fragmentShader);
             gl.useProgram(program);
 
-            var aPositionPointer = gl.getAttribLocation(program, "aPosition");
-            var aTexCoordPointer = gl.getAttribLocation(program, "aTexCoord")
-            gl.enableVertexAttribArray(aPositionPointer);
-            gl.enableVertexAttribArray(aTexCoordPointer);
+                var aPositionPointer = gl.getAttribLocation(program, "aPosition");
+                var aTexCoordPointer = gl.getAttribLocation(program, "aTexCoord")
+                var aNormalPointer = gl.getAttribLocation(program, "aNormal");
+                gl.enableVertexAttribArray(aPositionPointer);
+                gl.enableVertexAttribArray(aTexCoordPointer);
 
             var colorLocation = gl.getUniformLocation(program, "u_color");
 
+                
+                var uModelMatrixPointer = gl.getUniformLocation(program, "uModelMatrix");
+                var uViewMatrixPointer = gl.getUniformLocation(program, "uViewMatrix");
+                var uProjectionMatrixPointer = gl.getUniformLocation(program, "uProjectionMatrix");
+                var uNormalMatrixPointer = gl.getUniformLocation(program, "uNormalMatrix");
 
-            var uModelMatrixPointer = gl.getUniformLocation(program, "uModelMatrix");
-            var uViewMatrixPointer = gl.getUniformLocation(program, "uViewMatrix");
-            var uProjectionMatrixPointer = gl.getUniformLocation(program, "uProjectionMatrix");
+                var uMaterialDiffuseColor = gl.getUniformLocation(program, "uMaterialDiffuseColor");
+                var uMaterialAmbientColor = gl.getUniformLocation(program, "uMaterialAmbientColor");
+                
+                var uLightDiffuseColor = gl.getUniformLocation(program, "uLightDiffuseColor");
+                var uLightAmbientColor = gl.getUniformLocation(program, "uLightAmbientColor");
+                var uLightDirectionVectorPtr= gl.getUniformLocation(program,"uLightDirectionVector")
+
+                gl.uniform4f(uLightDiffuseColor, 1.0, 1.0, 1.0, 1.0);
+                gl.uniform4f(uLightAmbientColor, 0.5, 0.5, 0.5, 1.0); 
+                gl.uniform4f(uLightDirectionVectorPtr,-1.0,-3.0,-5.0,0.0);
 
             // Camera position parameters (editable)
             let eyeX = 2.0; // Original: 1.0
@@ -147,46 +195,50 @@
             var nearPlane = 1;
             var farPlane = 100;
 
-            // Create floor disk (only visible part of the cylindrical environment)
-            function createFloorDisk(numSegments = 64) {
-                const verts = [];
-                const texCoords = []; // UVs for consistency, though floor will be solid color
-
-                // Center vertex for TRIANGLE_FAN
-                verts.push(0, FLOOR_Y, 0, 1.0);
-                texCoords.push(0.5, 0.5);
-
-                // Perimeter vertices
-                for (let i = 0; i <= numSegments; ++i) {
-                    const theta = (i / numSegments) * 2 * Math.PI;
-                    verts.push(
-                        CYLINDER_RADIUS * Math.cos(theta),
-                        FLOOR_Y,
-                        CYLINDER_RADIUS * Math.sin(theta),
-                        1.0
-                    );
-                    texCoords.push(
-                        0.5 + 0.5 * Math.cos(theta), // Simple planar UV mapping
-                        0.5 + 0.5 * Math.sin(theta)
-                    );
+                // Create floor disk (only visible part of the cylindrical environment)
+                function createFloorDisk(numSegments = 64) {
+                    const verts = [];
+                    const texCoords = []; // UVs for consistency, though floor will be solid color
+                    
+                    // Center vertex for TRIANGLE_FAN
+                    verts.push(0, FLOOR_Y, 0, 1.0);
+                    texCoords.push(0.5, 0.5);
+                    
+                    // Perimeter vertices
+                    for (let i = 0; i <= numSegments; ++i) {
+                        const theta = (i / numSegments) * 2 * Math.PI;
+                        verts.push(
+                            CYLINDER_RADIUS * Math.cos(theta),
+                            FLOOR_Y,
+                            CYLINDER_RADIUS * Math.sin(theta),
+                            1.0
+                        );
+                        texCoords.push(
+                            0.5 + 0.5 * Math.cos(theta), // Simple planar UV mapping
+                            0.5 + 0.5 * Math.sin(theta)
+                        );
+                    }
+                    return { 
+                        vertices: new Float32Array(verts), 
+                        uvCoords: new Float32Array(texCoords),
+                        vertexCount: numSegments + 2 // Center + perimeter vertices
+                    };
                 }
-                return {
-                    vertices: new Float32Array(verts),
-                    uvCoords: new Float32Array(texCoords),
-                    vertexCount: numSegments + 2 // Center + perimeter vertices
-                };
-            }
+                
+                // Generate floor disk geometry and buffers
+                const floorDisk = createFloorDisk();
+                
+                const floorPositionBuffer = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, floorPositionBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, floorDisk.vertices, gl.STATIC_DRAW);
+                
+                const floorTexCoordBuffer = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, floorTexCoordBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, floorDisk.uvCoords, gl.STATIC_DRAW);
 
-            // Generate floor disk geometry and buffers
-            const floorDisk = createFloorDisk();
-
-            const floorPositionBuffer = gl.createBuffer();
-            gl.bindBuffer(gl.ARRAY_BUFFER, floorPositionBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, floorDisk.vertices, gl.STATIC_DRAW);
-
-            const floorTexCoordBuffer = gl.createBuffer();
-            gl.bindBuffer(gl.ARRAY_BUFFER, floorTexCoordBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, floorDisk.uvCoords, gl.STATIC_DRAW);
+                const floorNormalBuffer = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, floorNormalBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, floorDisk.normals, gl.STATIC_DRAW);
 
             // Function to check if a position is outside the cylindrical boundary (for future physics)
             // Assumes objectCenter is an array [x, y, z] and objectRadius is its bounding radius
@@ -217,18 +269,32 @@
             mat4.lookAt(viewMatrix, eyePoint, lookAtPoint, upVector);
             gl.uniformMatrix4fv(uViewMatrixPointer, false, new Float32Array(viewMatrix));
 
-            // Model Matrix
-            modelMatrix = mat4.create();
-            modelMatrix = mat4.identity(modelMatrix);
-            gl.uniformMatrix4fv(uModelMatrixPointer, false, new Float32Array(modelMatrix));
+                // Model Matrix
+                modelMatrix = mat4.create();
+                modelMatrix = mat4.identity(modelMatrix);
+                gl.uniformMatrix4fv(uModelMatrixPointer,false,new Float32Array(modelMatrix));
 
-            //D4 Dice
-            var diceFour = [
-                0.25, 0.25, 0.25, 1.0,  // V0
-                -0.25, -0.25, 0.25, 1.0, // V1
-                -0.25, 0.25, -0.25, 1.0, // V2
-                0.25, -0.25, -0.25, 1.0  // V3
-            ];
+                // Normal matrix
+                var normalMatrix = mat4.create();
+                mat4.invert(normalMatrix, modelMatrix);
+                mat4.transpose(normalMatrix, normalMatrix);
+                gl.uniformMatrix4fv(uNormalMatrixPointer, false, new Float32Array(normalMatrix));
+
+                //D4 Dice
+                var diceFour = [
+                    0.25, 0.25, 0.25, 1.0,  // V0
+                    -0.25, -0.25, 0.25, 1.0, // V1
+                    -0.25, 0.25, -0.25, 1.0, // V2
+                    0.25, -0.25, -0.25, 1.0  // V3
+                ];
+
+                // D4 Normals
+                var diceFourNormals = [
+                    0.577, 0.577, 0.577, 0.0,    // V0
+                    -0.577, -0.577, 0.577, 0.0,  // V1
+                    -0.577, 0.577, -0.577, 0.0,  // V2
+                    0.577, -0.577, -0.577, 0.0   // V3
+                ];
 
             // D4 Face UVs (standard for a triangle)
             const d4FaceUVs = [
@@ -455,49 +521,98 @@
             // Buffer for D12 face positions
             const d12TexturedFacePosBuffer = gl.createBuffer();
 
-            // D6 Dice
-            var diceSix = [
-                // Front face
-                -0.25, -0.25, 0.25, 1.0,
-                0.25, -0.25, 0.25, 1.0,
-                0.25, 0.25, 0.25, 1.0,
-                -0.25, 0.25, 0.25, 1.0,
-                // Back face
-                -0.25, -0.25, -0.25, 1.0,
-                -0.25, 0.25, -0.25, 1.0,
-                0.25, 0.25, -0.25, 1.0,
-                0.25, -0.25, -0.25, 1.0,
-                // Top face
-                -0.25, 0.25, -0.25, 1.0,
-                -0.25, 0.25, 0.25, 1.0,
-                0.25, 0.25, 0.25, 1.0,
-                0.25, 0.25, -0.25, 1.0,
-                // Bottom face
-                -0.25, -0.25, -0.25, 1.0,
-                0.25, -0.25, -0.25, 1.0,
-                0.25, -0.25, 0.25, 1.0,
-                -0.25, -0.25, 0.25, 1.0,
-                // Right face
-                0.25, -0.25, -0.25, 1.0,
-                0.25, 0.25, -0.25, 1.0,
-                0.25, 0.25, 0.25, 1.0,
-                0.25, -0.25, 0.25, 1.0,
-                // Left face
-                -0.25, -0.25, -0.25, 1.0,
-                -0.25, -0.25, 0.25, 1.0,
-                -0.25, 0.25, 0.25, 1.0,
-                -0.25, 0.25, -0.25, 1.0
-            ];
+                // D6 Dice
+                var diceSix = [
+                    // Front face
+                    -0.25, -0.25,  0.25, 1.0,
+                    0.25, -0.25,  0.25, 1.0,
+                    0.25,  0.25,  0.25, 1.0,
+                    -0.25,  0.25,  0.25, 1.0,
+                    // Back face
+                    -0.25, -0.25, -0.25, 1.0,
+                    -0.25,  0.25, -0.25, 1.0,
+                    0.25,  0.25, -0.25, 1.0,
+                    0.25, -0.25, -0.25, 1.0,
+                    // Top face
+                    -0.25,  0.25, -0.25, 1.0,
+                    -0.25,  0.25,  0.25, 1.0,
+                    0.25,  0.25,  0.25, 1.0,
+                    0.25,  0.25, -0.25, 1.0,
+                    // Bottom face
+                    -0.25, -0.25, -0.25, 1.0,
+                    0.25, -0.25, -0.25, 1.0,
+                    0.25, -0.25,  0.25, 1.0,
+                    -0.25, -0.25,  0.25, 1.0,
+                    // Right face
+                    0.25, -0.25, -0.25, 1.0,
+                    0.25,  0.25, -0.25, 1.0,
+                    0.25,  0.25,  0.25, 1.0,
+                    0.25, -0.25,  0.25, 1.0,
+                    // Left face
+                    -0.25, -0.25, -0.25, 1.0,
+                    -0.25, -0.25,  0.25, 1.0,
+                    -0.25,  0.25,  0.25, 1.0,
+                    -0.25,  0.25, -0.25, 1.0
+                ];
 
-            // D8 Dice
-            var diceEight = [
-                0.0, 0.0, 0.5, 1.0,   // Top vertex (doubled from 0.25)
-                0.0, 0.0, -0.5, 1.0,  // Bottom vertex (doubled from 0.25)
-                0.5, 0.0, 0.0, 1.0,   // Right vertex (doubled from 0.25)
-                -0.5, 0.0, 0.0, 1.0,  // Left vertex (doubled from 0.25)
-                0.0, 0.5, 0.0, 1.0,   // Front vertex (doubled from 0.25)
-                0.0, -0.5, 0.0, 1.0   // Back vertex (doubled from 0.25)
-            ];
+                // D6 Normals
+                var diceSixNormals = [
+                    // Front
+                    0.0, 0.0, 1.0, 0.0,
+                    0.0, 0.0, 1.0, 0.0,
+                    0.0, 0.0, 1.0, 0.0,
+                    0.0, 0.0, 1.0, 0.0,
+
+                    // Back
+                    0.0, 0.0, -1.0, 0.0,
+                    0.0, 0.0, -1.0, 0.0,
+                    0.0, 0.0, -1.0, 0.0,
+                    0.0, 0.0, -1.0, 0.0,
+
+                    // Top
+                    0.0, 1.0, 0.0, 0.0,
+                    0.0, 1.0, 0.0, 0.0,
+                    0.0, 1.0, 0.0, 0.0,
+                    0.0, 1.0, 0.0, 0.0,
+
+                    // Bottom
+                    0.0, -1.0, 0.0, 0.0,
+                    0.0, -1.0, 0.0, 0.0,
+                    0.0, -1.0, 0.0, 0.0,
+                    0.0, -1.0, 0.0, 0.0,
+
+                    // Right
+                    1.0, 0.0, 0.0, 0.0,
+                    1.0, 0.0, 0.0, 0.0,
+                    1.0, 0.0, 0.0, 0.0,
+                    1.0, 0.0, 0.0, 0.0,
+
+                    // Left 
+                    -1.0, 0.0, 0.0, 0.0,
+                    -1.0, 0.0, 0.0, 0.0,
+                    -1.0, 0.0, 0.0, 0.0,
+                    -1.0, 0.0, 0.0, 0.0
+                ];
+
+                // D8 Dice
+                var diceEight = [
+                    0.0, 0.0, 0.5, 1.0,   // Top vertex (doubled from 0.25)
+                    0.0, 0.0, -0.5, 1.0,  // Bottom vertex (doubled from 0.25)
+                    0.5, 0.0, 0.0, 1.0,   // Right vertex (doubled from 0.25)
+                    -0.5, 0.0, 0.0, 1.0,  // Left vertex (doubled from 0.25)
+                    0.0, 0.5, 0.0, 1.0,   // Front vertex (doubled from 0.25)
+                    0.0, -0.5, 0.0, 1.0   // Back vertex (doubled from 0.25)
+                ];
+
+                // D8 Normals
+                var diceEightNormals = [
+                    0.577, 0.577, 0.577, 0.0,   // Top
+                    0.577, 0.577, -0.577, 0.0,   // Bottom
+                    0.577, -0.577, 0.577, 0.0,   // Right
+                    -0.577, -0.577, 0.577, 0.0,  // Left
+                    -0.577, 0.577, 0.577, 0.0,   // Front
+                    0.577, -0.577, -0.577, 0.0   // Back
+                ];
 
             // D12 Dice
             // Reference: https://github.com/mrdoob/three.js/blob/master/src/geometries/DodecahedronGeometry.js
@@ -523,36 +638,85 @@
                 - t, 0, r, t, 0, r
             ]
 
-            // Scale factor to see the shape better
-            var rad = 0.25;
-            for (let i = 0; i < diceTwelve.length; i++) {
-                diceTwelve[i] *= rad;
-            }
+                // Scale factor to see the shape better
+                var rad = 0.25;
+                    for (let i = 0; i < diceTwelve.length; i++) {
+                    diceTwelve[i] *= rad;
+                }
+
+                // D12 Normals
+                var diceTwelveNormals = [
+                     // (±1, ±1, ±1)
+                    -0.577, -0.577, -0.577, 0.0,
+                    -0.577, -0.577, 0.577, 0.0,
+                    -0.577, 0.577, -0.577, 0.0,
+                    -0.577, 0.577, 0.577, 0.0,
+                    0.577, -0.577, -0.577, 0.0,
+                    0.577, -0.577, 0.577, 0.0,
+                    0.577, 0.577, -0.577, 0.0,
+                    0.577, 0.577, 0.577, 0.0,
+
+                    // (0, ±1/φ, ±φ)
+                    0.0, -0.356, -0.934, 0.0,
+                    0.0, -0.356, 0.934, 0.0,
+                    0.0, 0.356, -0.934, 0.0,
+                    0.0, 0.356, 0.934, 0.0,
+
+                    // (±1/φ, ±φ, 0)
+                    -0.356, -0.934, 0.0, 0.0,
+                    -0.356, 0.934, 0.0, 0.0,
+                    0.356, -0.934, 0.0, 0.0,
+                    0.356, 0.934, 0.0, 0.0,
+
+                    // (±φ, 0, ±1/φ)
+                    -0.934, 0.0, -0.356, 0.0,
+                    0.934, 0.0, -0.356, 0.0,
+                    -0.934, 0.0, 0.356, 0.0,
+                    0.934, 0.0, 0.356, 0.0
+                ];
 
             // Buffer Creation
             gl.enableVertexAttribArray(aPositionPointer);
 
-            var diceFourBuffer = gl.createBuffer();
-            gl.bindBuffer(gl.ARRAY_BUFFER, diceFourBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceFour), gl.STATIC_DRAW);
-            gl.vertexAttribPointer(aPositionPointer, 4, gl.FLOAT, false, 0, 0);
+                var diceFourBuffer = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, diceFourBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceFour), gl.STATIC_DRAW);
+                gl.vertexAttribPointer(aPositionPointer, 4, gl.FLOAT, false, 0, 0);
+                
+                var diceFourNormalBuffer = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, diceFourNormalBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceFourNormals), gl.STATIC_DRAW);
+                gl.vertexAttribPointer(aNormalPointer, 4, gl.FLOAT, false, 0, 0);
 
-            var diceSixBuffer = gl.createBuffer();
-            gl.bindBuffer(gl.ARRAY_BUFFER, diceSixBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSix), gl.STATIC_DRAW);
-            gl.vertexAttribPointer(aPositionPointer, 4, gl.FLOAT, false, 0, 0);
+                var diceSixBuffer = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, diceSixBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSix), gl.STATIC_DRAW);
+                gl.vertexAttribPointer(aPositionPointer, 4, gl.FLOAT, false, 0, 0);
 
-            var diceEightBuffer = gl.createBuffer();
-            gl.bindBuffer(gl.ARRAY_BUFFER, diceEightBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceEight), gl.STATIC_DRAW);
-            gl.vertexAttribPointer(aPositionPointer, 4, gl.FLOAT, false, 0, 0);
+                var diceSixNormalBuffer = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, diceSixNormalBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSixNormals), gl.STATIC_DRAW);
+                gl.vertexAttribPointer(aNormalPointer, 4, gl.FLOAT, false, 0, 0);
 
-            var diceTwelveBuffer = gl.createBuffer();
-            gl.bindBuffer(gl.ARRAY_BUFFER, diceTwelveBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceTwelve), gl.STATIC_DRAW);
-            gl.vertexAttribPointer(aPositionPointer, 3, gl.FLOAT, false, 0, 0);
+                var diceEightBuffer = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, diceEightBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceEight), gl.STATIC_DRAW);
+                gl.vertexAttribPointer(aPositionPointer, 4, gl.FLOAT, false, 0, 0);
 
+                var diceEightNormalBuffer = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, diceEightNormalBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceEightNormals), gl.STATIC_DRAW);
+                gl.vertexAttribPointer(aNormalPointer, 4, gl.FLOAT, false, 0, 0);
 
+                var diceTwelveBuffer = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, diceTwelveBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceTwelve), gl.STATIC_DRAW);
+                gl.vertexAttribPointer(aPositionPointer, 3, gl.FLOAT, false, 0, 0);
+                
+                var diceTwelveNormalBuffer = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, diceTwelveNormalBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceTwelveNormals), gl.STATIC_DRAW);
+                gl.vertexAttribPointer(aNormalPointer, 4, gl.FLOAT, false, 0, 0);
 
             // Index Array for D4
             var diceFourIndices = [
@@ -1358,7 +1522,31 @@
                 if (allDiceAsleep) {
                     needsValueUpdate = false; // Values are now up to date
                 }
-                
+
+                // Check if exactly two dice have stopped rolling
+                // *Implement highroll if the result is the maximum possible sum of the dice
+                if (stoppedDice.length === 2) {
+                    let maxSum = 0;
+                    for (let d of stoppedDice) {
+                        maxSum += maxDiceValues[d.type] || 6;   // Use max value for each dice type, default to 6 if unknown
+                    }
+
+                    // Calculate the sum of the two dice's rolled values
+                    const sum = stoppedDice.reduce((sum, d) => sum + d.value, 0);
+
+                    // Highroll if actual sum matches the maximum possible sum
+                    if (sum === maxSum) {
+                        if (!highRollActive) {
+                            highRollActive = true;
+                            highRoll();    // Trigger highroll 
+                        }
+                    } else {
+                        highRollActive = false;  // Reset when result is no longer max
+                    }
+                } else {
+                    highRollActive = false;  // Reset when dice count is not 2
+                }
+
                 return allStopped;
             }
 
@@ -1480,6 +1668,10 @@
                         // Apply rotation to the body
                         dice.body.quaternion = dice.body.quaternion.mult(rotQ);
                     }
+                    
+                    mat4.invert(normalMatrix, modelMatrix);
+                    mat4.transpose(normalMatrix, normalMatrix);
+                    gl.uniformMatrix4fv(uNormalMatrixPointer, false, normalMatrix);
                 }
                 
                 // Step physics world
@@ -1517,15 +1709,21 @@
                 gl.vertexAttribPointer(aTexCoordPointer, 2, gl.FLOAT, false, 0, 0);
                 gl.enableVertexAttribArray(aTexCoordPointer); // Keep it enabled
 
-                // Set floor color to white
-                gl.uniform4f(colorLocation, 0.2, 0.711, 0.945, 1.0);
-
-                // Draw the floor
-                gl.drawArrays(gl.TRIANGLE_FAN, 0, floorDisk.vertexCount);
+                    // Set floor color to white
+                    gl.uniform4f(colorLocation, 0.2,0.711,0.945, 1.0);
+                    gl.uniform4f(uMaterialDiffuseColor, 0.2, 0.711, 0.945, 1.0);  // Blue-ish color
+                    gl.uniform4f(uMaterialAmbientColor, 0.2, 0.711, 0.945, 1.0);
+                    
+                    // Draw the floor
+                    gl.drawArrays(gl.TRIANGLE_FAN, 0, floorDisk.vertexCount);
 
                 // --- Restore Dice Model Matrix and Draw Dice ---
                 gl.uniformMatrix4fv(uModelMatrixPointer, false, modelMatrix); // Restore original modelMatrix for dice
-
+                    gl.uniformMatrix4fv(uNormalMatrixPointer, false, normalMatrix); // Restore normal matrix for dice
+                    
+                    gl.uniform4f(uMaterialDiffuseColor, 1.0, 1.0, 1.0, 1.0);
+                    gl.uniform4f(uMaterialAmbientColor, 2.0, 2.0, 2.0, 1.0);
+  
                 // Draw all dice in the diceList
                 for (let i = 0; i < diceList.length; i++) {
                     const dice = diceList[i];
@@ -1593,6 +1791,10 @@
                     gl.vertexAttribPointer(aPositionPointer, 4, gl.FLOAT, false, 0, 0);
                     gl.enableVertexAttribArray(aPositionPointer); // Ensure it's enabled
 
+                        gl.bindBuffer(gl.ARRAY_BUFFER, diceFourNormalBuffer);
+                        gl.vertexAttribPointer(aNormalPointer, 4, gl.FLOAT, false, 0, 0);
+                        gl.enableVertexAttribArray(aNormalPointer);
+
                     gl.uniform4f(colorLocation, 0.7, 0.3, 0.3, 1.0); // D4 base color
                     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, diceFourIndicesBuffer);
                     gl.drawElements(gl.TRIANGLES, diceFourIndices.length, gl.UNSIGNED_BYTE, 0);
@@ -1612,11 +1814,15 @@
                     const facesVerts = [d4Face1Verts, d4Face2Verts, d4Face3Verts, d4Face4Verts];
                     const faceTextures = ["d4_1", "d4_2", "d4_3", "d4_4"];
 
-                    for (let i = 0; i < 4; i++) {
-                        gl.bindBuffer(gl.ARRAY_BUFFER, d4TexturedFacePosBuffer);
-                        gl.bufferData(gl.ARRAY_BUFFER, facesVerts[i], gl.DYNAMIC_DRAW); // Update buffer data
-                        gl.vertexAttribPointer(aPositionPointer, 4, gl.FLOAT, false, 0, 0);
-                        // aPositionPointer should still be enabled from drawing the base
+                        for (let i = 0; i < 4; i++) {
+                            gl.bindBuffer(gl.ARRAY_BUFFER, d4TexturedFacePosBuffer);
+                            gl.bufferData(gl.ARRAY_BUFFER, facesVerts[i], gl.DYNAMIC_DRAW); // Update buffer data
+                            gl.vertexAttribPointer(aPositionPointer, 4, gl.FLOAT, false, 0, 0);
+                            // aPositionPointer should still be enabled from drawing the base
+
+                            const faceNormal = [0.0, 0.0, 0.0, 0.0];
+                            gl.vertexAttribPointer(aNormalPointer, 4, gl.FLOAT, false, 0, 0);
+                            gl.disableVertexAttribArray(aNormalPointer);
 
                         gl.activeTexture(gl.TEXTURE0);
                         gl.bindTexture(gl.TEXTURE_2D, loadedTextures[faceTextures[i]]);
@@ -1630,8 +1836,12 @@
                 function drawD6() {
                     gl.uniform1i(gl.getUniformLocation(program, "uUseTexture"), false);
 
-                    gl.bindBuffer(gl.ARRAY_BUFFER, diceSixBuffer);
-                    gl.vertexAttribPointer(aPositionPointer, 4, gl.FLOAT, false, 0, 0);
+                        gl.bindBuffer(gl.ARRAY_BUFFER, diceSixBuffer);
+                        gl.vertexAttribPointer(aPositionPointer, 4, gl.FLOAT, false, 0, 0);
+                        
+                        gl.bindBuffer(gl.ARRAY_BUFFER, diceSixNormalBuffer);
+                        gl.vertexAttribPointer(aNormalPointer, 4, gl.FLOAT, false, 0, 0);
+                        gl.enableVertexAttribArray(aNormalPointer);
 
                     gl.uniform4f(colorLocation, 0.0, 0.0, 0.0, 1.0);
                     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, diceSixIndicesBuffer);
@@ -1649,15 +1859,19 @@
                     const positionBuffer = gl.createBuffer();
                     const uvBuffer = gl.createBuffer();
 
-                    gl.bindBuffer(gl.ARRAY_BUFFER, uvBuffer);
-                    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSixUVFace), gl.STATIC_DRAW);
-                    gl.enableVertexAttribArray(aTexCoordPointer);
-                    gl.vertexAttribPointer(aTexCoordPointer, 2, gl.FLOAT, false, 0, 0);
+                        gl.bindBuffer(gl.ARRAY_BUFFER, uvBuffer);
+                        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSixUVFace), gl.STATIC_DRAW);
+                        gl.enableVertexAttribArray(aTexCoordPointer);
+                        gl.vertexAttribPointer(aTexCoordPointer, 2, gl.FLOAT, false, 0, 0);
+                            
+                        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+                        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSixFaceFront), gl.STATIC_DRAW);
+                        gl.enableVertexAttribArray(aPositionPointer);
+                        gl.vertexAttribPointer(aPositionPointer, 4, gl.FLOAT, false, 0, 0);
 
-                    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-                    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSixFaceFront), gl.STATIC_DRAW);
-                    gl.enableVertexAttribArray(aPositionPointer);
-                    gl.vertexAttribPointer(aPositionPointer, 4, gl.FLOAT, false, 0, 0);
+                        const frontNormal = [0.0, 0.0, 1.0, 0.0];
+                        gl.disableVertexAttribArray(aNormalPointer);
+                        gl.vertexAttrib4fv(aNormalPointer, frontNormal);
 
                     gl.activeTexture(gl.TEXTURE0);
                     gl.bindTexture(gl.TEXTURE_2D, loadedTextures["front"]);
@@ -1665,8 +1879,11 @@
 
                     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
-                    // === BACK FACE ===
-                    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSixFaceBack), gl.STATIC_DRAW);
+                        // === BACK FACE ===
+                        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSixFaceBack), gl.STATIC_DRAW);
+
+                        const backNormal = [0.0, 0.0, -1.0, 0.0];
+                        gl.vertexAttrib4fv(aNormalPointer, backNormal);
 
                     gl.activeTexture(gl.TEXTURE0);
                     gl.bindTexture(gl.TEXTURE_2D, loadedTextures["back"]);
@@ -1674,8 +1891,11 @@
 
                     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
-                    // === TOP FACE ===
-                    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSixFaceTop), gl.STATIC_DRAW);
+                        // === TOP FACE ===
+                        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSixFaceTop), gl.STATIC_DRAW);
+
+                        const topNormal = [0.0, 1.0, 0.0, 0.0];
+                        gl.vertexAttrib4fv(aNormalPointer, topNormal);
 
                     gl.activeTexture(gl.TEXTURE0);
                     gl.bindTexture(gl.TEXTURE_2D, loadedTextures["top"]);
@@ -1683,8 +1903,11 @@
 
                     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
-                    // === BOTTOM FACE ===
-                    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSixFaceBottom), gl.STATIC_DRAW);
+                        // === BOTTOM FACE ===
+                        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSixFaceBottom), gl.STATIC_DRAW);
+
+                        const bottomNormal = [0.0, -1.0, 0.0, 0.0];
+                        gl.vertexAttrib4fv(aNormalPointer, bottomNormal);
 
                     gl.activeTexture(gl.TEXTURE0);
                     gl.bindTexture(gl.TEXTURE_2D, loadedTextures["bottom"]);
@@ -1692,8 +1915,11 @@
 
                     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
-                    // === RIGHT FACE ===
-                    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSixFaceRight), gl.STATIC_DRAW);
+                        // === RIGHT FACE ===
+                        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSixFaceRight), gl.STATIC_DRAW);
+
+                        const rightNormal = [1.0, 0.0, 0.0, 0.0];
+                        gl.vertexAttrib4fv(aNormalPointer, rightNormal);
 
                     gl.activeTexture(gl.TEXTURE0);
                     gl.bindTexture(gl.TEXTURE_2D, loadedTextures["right"]);
@@ -1701,8 +1927,11 @@
 
                     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
-                    // === LEFT FACE ===
-                    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSixFaceLeft), gl.STATIC_DRAW);
+                        // === LEFT FACE ===
+                        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diceSixFaceLeft), gl.STATIC_DRAW);
+
+                        const leftNormal = [-1.0, 0.0, 0.0, 0.0];
+                        gl.vertexAttrib4fv(aNormalPointer, leftNormal);
 
                     gl.activeTexture(gl.TEXTURE0);
                     gl.bindTexture(gl.TEXTURE_2D, loadedTextures["left"]);
@@ -1715,9 +1944,12 @@
                 function drawD8() {
                     gl.uniform1i(gl.getUniformLocation(program, "uUseTexture"), false);
 
-                    // Draw solid D8 base
-                    gl.bindBuffer(gl.ARRAY_BUFFER, diceEightBuffer);
-                    gl.vertexAttribPointer(aPositionPointer, 4, gl.FLOAT, false, 0, 0);
+                        // Draw solid D8 base
+                        gl.bindBuffer(gl.ARRAY_BUFFER, diceEightBuffer);
+                        gl.vertexAttribPointer(aPositionPointer, 4, gl.FLOAT, false, 0, 0);
+
+                        gl.bindBuffer(gl.ARRAY_BUFFER, diceEightNormalBuffer);
+                        gl.vertexAttribPointer(aNormalPointer, 4, gl.FLOAT, false, 0, 0);
 
                     gl.uniform4f(colorLocation, 0.3, 0.3, 0.7, 1.0);
                     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, diceEightIndicesBuffer);
@@ -1739,63 +1971,76 @@
                         "d8_1", "d8_2", "d8_3", "d8_4", "d8_5", "d8_6", "d8_7", "d8_8"
                     ];
 
-                    for (let i = 0; i < 8; i++) {
-                        // Update buffer with this face's vertices
-                        gl.bindBuffer(gl.ARRAY_BUFFER, d8TexturedFacePosBuffer);
-                        gl.bufferData(gl.ARRAY_BUFFER, d8TexturedFaces[i], gl.DYNAMIC_DRAW);
-                        gl.vertexAttribPointer(aPositionPointer, 4, gl.FLOAT, false, 0, 0);
-                        gl.enableVertexAttribArray(aPositionPointer);
+                        for (let i = 0; i < 8; i++) {
+                            // Update buffer with this face's vertices
+                            gl.bindBuffer(gl.ARRAY_BUFFER, d8TexturedFacePosBuffer);
+                            gl.bufferData(gl.ARRAY_BUFFER, d8TexturedFaces[i], gl.DYNAMIC_DRAW);
+                            gl.vertexAttribPointer(aPositionPointer, 4, gl.FLOAT, false, 0, 0);
+                            gl.enableVertexAttribArray(aPositionPointer);
 
-                        // Bind the texture for this face
-                        gl.activeTexture(gl.TEXTURE0);
-                        gl.bindTexture(gl.TEXTURE_2D, loadedTextures[d8FaceTextures[i]]);
-                        gl.uniform1i(gl.getUniformLocation(program, "uSampler"), 0);
+                            gl.disableVertexAttribArray(aNormalPointer);
+                            const faceNormal = [0.0, 0.0, 0.0, 0.0];
+                            gl.vertexAttrib4fv(aNormalPointer, faceNormal);
 
-                        // Draw the face
-                        gl.drawArrays(gl.TRIANGLES, 0, 3); // Each face is 3 vertices
+                            // Bind the texture for this face
+                            gl.activeTexture(gl.TEXTURE0);
+                            gl.bindTexture(gl.TEXTURE_2D, loadedTextures[d8FaceTextures[i]]);
+                            gl.uniform1i(gl.getUniformLocation(program, "uSampler"), 0);
+                            
+                            // Draw the face
+                            gl.drawArrays(gl.TRIANGLES, 0, 3); // Each face is 3 vertices
+                        }
                     }
-                }
+                    
+                    function drawD12() {
+                        gl.uniform1i(gl.getUniformLocation(program, "uUseTexture"), false);
+                    
+                        // Draw solid D12 base
+                        gl.bindBuffer(gl.ARRAY_BUFFER, diceTwelveBuffer);
+                        gl.vertexAttribPointer(aPositionPointer, 3, gl.FLOAT, false, 0, 0);
+                    
+                        gl.bindBuffer(gl.ARRAY_BUFFER, diceTwelveNormalBuffer);
+                        gl.vertexAttribPointer(aNormalPointer, 4, gl.FLOAT, false, 0, 0);
+                        
+                        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, diceTwelveIndicesBuffer);
+                        gl.uniform4f(colorLocation, 0.3, 0.3, 0.7, 1.0);
+                        gl.drawElements(gl.TRIANGLES, diceTwelveIndices.length, gl.UNSIGNED_BYTE, 0);
 
-                function drawD12() {
-                    gl.uniform1i(gl.getUniformLocation(program, "uUseTexture"), false);
+                        // Draw D12 edges
+                        gl.uniform4f(colorLocation, 1.0, 1.0, 1.0, 1.0);
+                        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, diceTwelveEdgesBuffer);
+                        gl.drawElements(gl.LINES, diceTwelveEdges.length, gl.UNSIGNED_BYTE, 0);
+                        
+                        // --- Draw Textured D12 Faces ---
+                        gl.uniform1i(gl.getUniformLocation(program, "uUseTexture"), true);
+                        
+                        // Bind the UV coordinates for pentagonal faces
+                        gl.bindBuffer(gl.ARRAY_BUFFER, d12FaceUVBuffer);
+                        gl.vertexAttribPointer(aTexCoordPointer, 2, gl.FLOAT, false, 0, 0);
+                        gl.enableVertexAttribArray(aTexCoordPointer);
+                        
+                        for (let i = 0; i < 12; i++) {
+                            // Update buffer with this face's vertices
+                            gl.bindBuffer(gl.ARRAY_BUFFER, d12TexturedFacePosBuffer);
+                            gl.bufferData(gl.ARRAY_BUFFER, d12TexturedFaces[i], gl.DYNAMIC_DRAW);
+                            gl.vertexAttribPointer(aPositionPointer, 4, gl.FLOAT, false, 0, 0);
+                            gl.enableVertexAttribArray(aPositionPointer);
 
-                    // Draw solid D12 base
-                    gl.bindBuffer(gl.ARRAY_BUFFER, diceTwelveBuffer);
-                    gl.vertexAttribPointer(aPositionPointer, 3, gl.FLOAT, false, 0, 0);
+                            gl.disableVertexAttribArray(aNormalPointer);
+                            const faceNormal = [0.0, 0.0, 0.0, 0.0];
+                            gl.vertexAttrib4fv(aNormalPointer, faceNormal);
+                            
+                            // Bind the texture for this face
+                            gl.activeTexture(gl.TEXTURE0);
+                            gl.bindTexture(gl.TEXTURE_2D, loadedTextures[`d12_${i+1}`]);
+                            gl.uniform1i(gl.getUniformLocation(program, "uSampler"), 0);
+                            
+                            // Draw the face as a triangle fan (pentagon)
+                            gl.drawArrays(gl.TRIANGLE_FAN, 0, 5);
 
-                    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, diceTwelveIndicesBuffer);
-                    gl.uniform4f(colorLocation, 0.3, 0.3, 0.7, 1.0);
-                    gl.drawElements(gl.TRIANGLES, diceTwelveIndices.length, gl.UNSIGNED_BYTE, 0);
-
-                    // Draw D12 edges
-                    gl.uniform4f(colorLocation, 1.0, 1.0, 1.0, 1.0);
-                    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, diceTwelveEdgesBuffer);
-                    gl.drawElements(gl.LINES, diceTwelveEdges.length, gl.UNSIGNED_BYTE, 0);
-
-                    // --- Draw Textured D12 Faces ---
-                    gl.uniform1i(gl.getUniformLocation(program, "uUseTexture"), true);
-
-                    // Bind the UV coordinates for pentagonal faces
-                    gl.bindBuffer(gl.ARRAY_BUFFER, d12FaceUVBuffer);
-                    gl.vertexAttribPointer(aTexCoordPointer, 2, gl.FLOAT, false, 0, 0);
-                    gl.enableVertexAttribArray(aTexCoordPointer);
-
-                    for (let i = 0; i < 12; i++) {
-                        // Update buffer with this face's vertices
-                        gl.bindBuffer(gl.ARRAY_BUFFER, d12TexturedFacePosBuffer);
-                        gl.bufferData(gl.ARRAY_BUFFER, d12TexturedFaces[i], gl.DYNAMIC_DRAW);
-                        gl.vertexAttribPointer(aPositionPointer, 4, gl.FLOAT, false, 0, 0);
-                        gl.enableVertexAttribArray(aPositionPointer);
-
-                        // Bind the texture for this face
-                        gl.activeTexture(gl.TEXTURE0);
-                        gl.bindTexture(gl.TEXTURE_2D, loadedTextures[`d12_${i + 1}`]);
-                        gl.uniform1i(gl.getUniformLocation(program, "uSampler"), 0);
-
-                        // Draw the face as a triangle fan (pentagon)
-                        gl.drawArrays(gl.TRIANGLE_FAN, 0, 5);
+                            
+                        }
                     }
-                }
 
             }
 
@@ -2050,6 +2295,7 @@
             }
 
             function rollDice() {
+                highRollActive = false;
                 needsValueUpdate = true;
                 lastRollTime = Date.now();
                 
@@ -2221,12 +2467,50 @@
                     }
                 }
             }
+            
+
+            function highRoll() {
+                const originalDiffuse = [1.0, 1.0, 1.0, 1.0];
+                const originalAmbient = [0.5, 0.5, 0.5, 1.0];
+
+                const duration = 3000;
+                const flashSpeed = 100;
+                const startTime = Date.now();
+
+                function getRandomColor() {
+                    return [
+                        Math.random(),  //R
+                        Math.random(),  //G
+                        Math.random(),  //B
+                        1.0             //A
+                    ];
+                }
+
+                function animateHighRoll() {
+                    const elapsed = Date.now() - startTime;
+
+                    if (elapsed < duration) {
+                        const newColor = getRandomColor();
+                        gl.uniform4f(uLightDiffuseColor, ...newColor);
+                        const ambientColor = newColor.map(c => c * 0.5);
+                        gl.uniform4f(uLightAmbientColor, ...ambientColor);
+
+                        setTimeout(animateHighRoll, flashSpeed);
+                    } else {
+                        gl.uniform4f(uLightDiffuseColor, ...originalDiffuse);
+                        gl.uniform4f(uLightAmbientColor, ...originalAmbient);
+                    }
+                }
+
+                animateHighRoll();
+            }
 
             document.getElementById("diceFourBtn").addEventListener("click", () => addDice("diceFour"));
             document.getElementById("diceSixBtn").addEventListener("click", () => addDice("diceSix"));
             document.getElementById("diceEightBtn").addEventListener("click", () => addDice("diceEight"));
             document.getElementById("diceTwelveBtn").addEventListener("click", () => addDice("diceTwelve"));
             document.getElementById("removeDiceBtn").addEventListener("click", removeDice);
+            // document.getElementById("highRollBtn").addEventListener("click", highRoll);
             document.getElementById("rollDiceBtn").addEventListener('click', rollDice);
             document.addEventListener("keydown", function(event){
                 // check is space bar is pressed (key code == 32)
@@ -2254,6 +2538,7 @@
             <button class="diceBtn" id="diceEightBtn">D8</button>
             <button class="diceBtn" id="diceTwelveBtn">D12</button>
             <button class="diceBtn" id="removeDiceBtn">Remove</button>
+            <!-- <button class="diceBtn" id="highRollBtn">High Roll</button> -->
         </div>
         <button class="diceBtn" id="rollDiceBtn">Roll</button>
         <h1 style="color: white; font-size: large">or press the 'Spacebar'!</h1>

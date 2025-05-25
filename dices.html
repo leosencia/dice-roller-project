@@ -2154,28 +2154,28 @@
                         // Add a bit more initial energy to make it move
                         dice.body.velocity.set(
                             dirX * backwardForce,
-                            1.0,
+                            5.0,
                             dirZ * backwardForce
                         );
                         
                         // Add some random spin
                         dice.body.angularVelocity.set(
-                            (Math.random() - 0.5) * 8,
-                            (Math.random() - 0.5) * 8,
-                            (Math.random() - 0.5) * 8
+                            (Math.random() - 0.5) * 30,
+                            (Math.random() - 0.5) * 30,
+                            (Math.random() - 0.5) * 30
                         );
                     } else {
                         // For dice that are already active, just add some new energy
                         dice.body.velocity.set(
                             (Math.random() - 0.5) * 3.0,
-                            8.5,
+                            9.5,
                             (Math.random() - 0.5) * 3.0
                         );
                         
                         dice.body.angularVelocity.set(
-                            (Math.random() - 0.5) * 10,
-                            (Math.random() - 0.5) * 10,
-                            (Math.random() - 0.5) * 10
+                            (Math.random() - 0.5) * 60,
+                            (Math.random() - 0.5) * 60,
+                            (Math.random() - 0.5) * 60
                         );
 
                         // sound plays after sometime when re-tossed from the ground

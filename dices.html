@@ -980,9 +980,9 @@
                     gl.uniformMatrix4fv(uModelMatrixPointer, false, modelMatrix);
                     }
                     
-                    // mat4.invert(normalMatrix, modelMatrix);
-                    // mat4.transpose(normalMatrix, normalMatrix);
-                    // gl.uniformMatrix4fv(uNormalMatrixPointer, false, normalMatrix);
+                    mat4.invert(normalMatrix, modelMatrix);
+                    mat4.transpose(normalMatrix, normalMatrix);
+                    gl.uniformMatrix4fv(uNormalMatrixPointer, false, normalMatrix);
 
                     drawScene();
                     requestAnimationFrame(animate);
@@ -1061,15 +1061,9 @@
                         gl.vertexAttribPointer(aNormalPointer, 4, gl.FLOAT, false, 0, 0);
                         gl.enableVertexAttribArray(aNormalPointer);
 
-                        // gl.uniform4f(uMaterialDiffuseColor, 1.0, 1.0, 1.0, 1.0);
-                        // gl.uniform4f(uMaterialAmbientColor, 2.0, 2.0, 2.0, 1.0);
-
                         gl.uniform4f(colorLocation,0.7,0.3,0.3,1.0); // D4 base color
                         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, diceFourIndicesBuffer);
                         gl.drawElements(gl.TRIANGLES, diceFourIndices.length, gl.UNSIGNED_BYTE, 0);
-
-                        // gl.uniform4f(uMaterialDiffuseColor, 1.0, 1.0, 1.0, 1.0);
-                        // gl.uniform4f(uMaterialAmbientColor, 2.0, 2.0, 2.0, 1.0);
 
                         // Draw D4 edges
                         gl.uniform4f(colorLocation,1.0,1.0,1.0,1.0); // Edge color
@@ -1115,15 +1109,10 @@
                         gl.vertexAttribPointer(aNormalPointer, 4, gl.FLOAT, false, 0, 0);
                         gl.enableVertexAttribArray(aNormalPointer);
 
-                        // gl.uniform4f(uMaterialDiffuseColor, 1.0, 1.0, 1.0, 1.0);
-                        // gl.uniform4f(uMaterialAmbientColor, 2.0, 2.0, 2.0, 1.0);
-
                         gl.uniform4f(colorLocation,0.0,0.0,0.0,1.0);
                         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, diceSixIndicesBuffer);
                         gl.drawElements(gl.TRIANGLES, diceSixIndices.length, gl.UNSIGNED_BYTE, 0);
 
-                        // gl.uniform4f(uMaterialDiffuseColor, 1.0, 1.0, 1.0, 1.0);
-                        // gl.uniform4f(uMaterialAmbientColor, 2.0, 2.0, 2.0, 1.0);
                         gl.uniform4f(colorLocation,1.0,1.0,1.0,1.0);
                         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, diceSixEdgesBuffer);
                         gl.drawElements(gl.LINES, diceSixEdges.length, gl.UNSIGNED_BYTE, 0);
@@ -1227,16 +1216,11 @@
 
                         gl.bindBuffer(gl.ARRAY_BUFFER, diceEightNormalBuffer);
                         gl.vertexAttribPointer(aNormalPointer, 4, gl.FLOAT, false, 0, 0);
-                        
-                        // gl.uniform4f(uMaterialDiffuseColor, 1.0, 1.0, 1.0, 1.0);
-                        // gl.uniform4f(uMaterialAmbientColor, 2.0, 2.0, 2.0, 1.0);
 
                         gl.uniform4f(colorLocation,0.3,0.3,0.7,1.0);
                         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, diceEightIndicesBuffer);
                         gl.drawElements(gl.TRIANGLES, diceEightIndices.length, gl.UNSIGNED_BYTE, 0);
 
-                        // gl.uniform4f(uMaterialDiffuseColor, 1.0, 1.0, 1.0, 1.0);
-                        // gl.uniform4f(uMaterialAmbientColor, 2.0, 2.0, 2.0, 1.0);
                         // Draw D8 edges
                         gl.uniform4f(colorLocation,1.0,1.0,1.0,1.0);
                         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, diceEightEdgesBuffer);
@@ -1284,15 +1268,10 @@
                         gl.bindBuffer(gl.ARRAY_BUFFER, diceTwelveNormalBuffer);
                         gl.vertexAttribPointer(aNormalPointer, 4, gl.FLOAT, false, 0, 0);
                         
-                        // gl.uniform4f(uMaterialDiffuseColor, 0.9, 0.7, 1.0, 1.0);
-                        // gl.uniform4f(uMaterialAmbientColor, 2.0, 2.0, 2.0, 1.0);
-
                         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, diceTwelveIndicesBuffer);
                         gl.uniform4f(colorLocation, 0.3, 0.3, 0.7, 1.0);
                         gl.drawElements(gl.TRIANGLES, diceTwelveIndices.length, gl.UNSIGNED_BYTE, 0);
-                    
-                        // gl.uniform4f(uMaterialDiffuseColor, 0.9, 0.7, 1.0, 1.0);
-                        // gl.uniform4f(uMaterialAmbientColor, 2.0, 2.0, 2.0, 1.0);
+
                         // Draw D12 edges
                         gl.uniform4f(colorLocation, 1.0, 1.0, 1.0, 1.0);
                         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, diceTwelveEdgesBuffer);
@@ -1355,18 +1334,18 @@
 
                 function highRoll() {
                     const originalDiffuse = [1.0, 1.0, 1.0, 1.0];
-                    const originalAmbient = [2.0, 2.0, 2.0, 2.0];
-                    
-                    const duration = 2000;
-                    const flashSpeed = 300;
+                    const originalAmbient = [0.5, 0.5, 0.5, 1.0];
+
+                    const duration = 3000;
+                    const flashSpeed = 100;
                     const startTime = Date.now();
 
                     function getRandomColor() {
                         return [
-                            Math.random(),
-                            Math.random(),
-                            Math.random(),
-                            1.0
+                            Math.random(),  //R
+                            Math.random(),  //G
+                            Math.random(),  //B
+                            1.0             //A
                         ];
                     }
 

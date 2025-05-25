@@ -84,6 +84,9 @@
                 console.log("Failed to retrieve the <canvas> element");
             }
 
+            let allDicesAsleep = false;
+            let needsValueUpdate = true;
+            let lastRollTime = 0;
 
             // Cylindrical environment parameters
             const CYLINDER_RADIUS = 2.0;   // Radius of the cylinder and floor
@@ -818,11 +821,331 @@
             // gl.uniform4f(colorLocation,0.7,0.3,0.3,1.0);
             // gl.drawElements(gl.TRIANGLES, diceFourIndices.length, gl.UNSIGNED_BYTE, 0);
 
+            // For Rotation
+            let rotationSpeed = 0.005;
+            let isRotating = true;
+
+            // Get the value of the D4 Dice
+            // ONLY CALL THIS AFTER THE ROLL
+            function getTopD4Value(modelMatrix) {
+                const diceFourPerVer = [
+                    [ 0.25,  0.25,  0.25, 1.0],  // V0
+                    [-0.25, -0.25,  0.25, 1.0],  // V1
+                    [-0.25,  0.25, -0.25, 1.0],  // V2
+                    [ 0.25, -0.25, -0.25, 1.0]   // V3
+                ];
+
+                let maxY = -Infinity;
+                let topVertexIndex = -1;
+
+                for (let i = 0; i < diceFourPerVer.length; i++) {
+                    const v = diceFourPerVer[i];
+                    const vertex = vec4.fromValues(v[0], v[1], v[2], v[3]);
+                    const transformed = vec4.create();
+                    vec4.transformMat4(transformed, vertex, modelMatrix);
+
+                    if (transformed[1] > maxY) {
+                        maxY = transformed[1];
+                        topVertexIndex = i;
+                    }
+                }
+
+                const valueMap = [1, 3, 4, 2];
+                return valueMap[topVertexIndex];
+            }
+
+            // Get the value of the D6 Dice
+            // ONLY CALL THIS AFTER THE ROLL
+            function getTopD6Value(modelMatrix) {
+                const faceCenters = {
+                    front:  [ 0.0,  0.0,  0.25, 1.0],
+                    back:   [ 0.0,  0.0, -0.25, 1.0],
+                    top:    [ 0.0,  0.25,  0.0,  1.0],
+                    bottom: [ 0.0, -0.25,  0.0,  1.0],
+                    right:  [ 0.25, 0.0,  0.0,  1.0],
+                    left:   [-0.25, 0.0,  0.0,  1.0]
+                };
+
+                // Map face names to die values based on texture mapping
+                const faceToValue = {
+                    top: 2,
+                    bottom: 5,
+                    front: 1,
+                    back: 6,
+                    right: 3,
+                    left: 4
+                };
+
+                let topFace = null;
+                let maxY = -Infinity;
+
+                for (const [face, center] of Object.entries(faceCenters)) {
+                    const transformed = vec4.create();
+                    const original = vec4.fromValues(...center);
+                    vec4.transformMat4(transformed, original, modelMatrix);
+
+                    if (transformed[1] > maxY) {
+                        maxY = transformed[1];
+                        topFace = face;
+                    }
+                }
+
+                return faceToValue[topFace];
+            }
+
+            // Get the value of the D8 Dice
+            // ONLY CALL THIS AFTER THE ROLL
+            function getTopD8Value(modelMatrix) {
+                let maxY = -Infinity;
+                let topFaceIndex = -1;
+
+                // Each face is 3 indices, so loop in steps of 3
+                for (let i = 0; i < diceEightIndices.length; i += 3) {
+                    const idx0 = diceEightIndices[i] * 4;
+                    const idx1 = diceEightIndices[i + 1] * 4;
+                    const idx2 = diceEightIndices[i + 2] * 4;
+
+                    const v0 = vec4.fromValues(
+                        diceEight[idx0], diceEight[idx0 + 1], diceEight[idx0 + 2], diceEight[idx0 + 3]
+                    );
+                    const v1 = vec4.fromValues(
+                        diceEight[idx1], diceEight[idx1 + 1], diceEight[idx1 + 2], diceEight[idx1 + 3]
+                    );
+                    const v2 = vec4.fromValues(
+                        diceEight[idx2], diceEight[idx2 + 1], diceEight[idx2 + 2], diceEight[idx2 + 3]
+                    );
+
+                    // Average the three vertices to get the center point of the face
+                    const center = vec4.fromValues(
+                        (v0[0] + v1[0] + v2[0]) / 3,
+                        (v0[1] + v1[1] + v2[1]) / 3,
+                        (v0[2] + v1[2] + v2[2]) / 3,
+                        1.0
+                    );
+
+                    // Transform the center using modelMatrix
+                    const transformedCenter = vec4.create();
+                    vec4.transformMat4(transformedCenter, center, modelMatrix);
+
+                    if (transformedCenter[1] > maxY) {
+                        maxY = transformedCenter[1];
+                        topFaceIndex = i / 3;
+                    }
+                }
+
+                const valueMap = [1, 2, 3, 4, 5, 6, 7, 8];
+                const topValue = valueMap[topFaceIndex];
+
+                return topValue;
+            }
+
+            // Get the value of the D12 Dice
+            // ONLY CALL THIS AFTER THE ROLL
+            function getTopD12Value(modelMatrix) {
+                let maxY = -Infinity;
+                let topFaceIndex = -1;
+
+                // D12 vertex positions use 3 components per vertex
+                const numTriangles = diceTwelveIndices.length / 3;
+
+                for (let i = 0; i < diceTwelveIndices.length; i += 3) {
+                    const idx0 = diceTwelveIndices[i] * 3;
+                    const idx1 = diceTwelveIndices[i + 1] * 3;
+                    const idx2 = diceTwelveIndices[i + 2] * 3;
+
+                    const v0 = vec4.fromValues(
+                        diceTwelve[idx0], diceTwelve[idx0 + 1], diceTwelve[idx0 + 2], 1.0
+                    );
+                    const v1 = vec4.fromValues(
+                        diceTwelve[idx1], diceTwelve[idx1 + 1], diceTwelve[idx1 + 2], 1.0
+                    );
+                    const v2 = vec4.fromValues(
+                        diceTwelve[idx2], diceTwelve[idx2 + 1], diceTwelve[idx2 + 2], 1.0
+                    );
+
+                    // Compute face center
+                    const center = vec4.fromValues(
+                        (v0[0] + v1[0] + v2[0]) / 3,
+                        (v0[1] + v1[1] + v2[1]) / 3,
+                        (v0[2] + v1[2] + v2[2]) / 3,
+                        1.0
+                    );
+
+                    // Transform the center using model matrix
+                    const transformedCenter = vec4.create();
+                    vec4.transformMat4(transformedCenter, center, modelMatrix);
+
+                    // Track highest Y
+                    if (transformedCenter[1] > maxY) {
+                        maxY = transformedCenter[1];
+                        topFaceIndex = Math.floor(i / 9); // 9 indices = 3 triangles per pentagon
+                    }
+                }
+
+                const faceValues = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+                return faceValues[topFaceIndex];
+            }
+
+            // Function to check and display dice values when they've stopped moving
+            function checkDiceValues() {
+                // If all dice were already asleep and nothing changed, skip processing
+                if (allDicesAsleep && !needsValueUpdate) {
+                    return true;
+                }
+                
+                const stoppedDice = [];
+                let allStopped = true;
+                let allSleeping = true;
+                
+                // Check if all dice have stopped moving
+                for (let i = 0; i < diceList.length; i++) {
+                    const dice = diceList[i];
+                    if (!dice.body) continue;
+                    
+                    // Check sleeping state
+                    if (dice.body.sleepState === CANNON.Body.SLEEPING) {
+                        // Add to stoppedDice without recalculating if we've already done it
+                        if (!dice.valueCalculated || needsValueUpdate) {
+                            // Only calculate the value once
+                            const pos = dice.body.position;
+                            const quat = dice.body.quaternion;
+                            
+                            const diceModelMatrix = mat4.create();
+                            mat4.translate(diceModelMatrix, diceModelMatrix, [pos.x, pos.y, pos.z]);
+                            
+                            const rotationMatrix = mat4.create();
+                            mat4.fromQuat(rotationMatrix, [quat.x, quat.y, quat.z, quat.w]);
+                            mat4.multiply(diceModelMatrix, diceModelMatrix, rotationMatrix);
+                            
+                            // Calculate value based on dice type
+                            let value;
+                            switch (dice.type) {
+                                case "diceFour": value = getTopD4Value(diceModelMatrix); break;
+                                case "diceSix": value = getTopD6Value(diceModelMatrix); break;
+                                case "diceEight": value = getTopD8Value(diceModelMatrix); break;
+                                case "diceTwelve": value = getTopD12Value(diceModelMatrix); break;
+                            }
+                            
+                            dice.valueCalculated = true;
+                            dice.value = value;
+                        }
+                        
+                        stoppedDice.push({
+                            type: dice.type,
+                            value: dice.value
+                        });
+                    } else {
+                        // This die is not sleeping
+                        allSleeping = false;
+                        
+                        // Reset values for moving dice
+                        if (dice.valueCalculated) {
+                            dice.valueCalculated = false;
+                        }
+                        
+                        // Consider a die stopped if both linear and angular velocity are below threshold
+                        const linVelMagnitude = dice.body.velocity.lengthSquared();
+                        const angVelMagnitude = dice.body.angularVelocity.lengthSquared();
+                        
+                        const isStopped = linVelMagnitude < 0.01 && angVelMagnitude < 0.01;
+                        
+                        if (isStopped) {
+                            // Create model matrix for the die to calculate its value
+                            const pos = dice.body.position;
+                            const quat = dice.body.quaternion;
+                            
+                            const diceModelMatrix = mat4.create();
+                            mat4.translate(diceModelMatrix, diceModelMatrix, [pos.x, pos.y, pos.z]);
+                            
+                            // Apply rotation from physics quaternion
+                            const rotationMatrix = mat4.create();
+                            mat4.fromQuat(rotationMatrix, [quat.x, quat.y, quat.z, quat.w]);
+                            mat4.multiply(diceModelMatrix, diceModelMatrix, rotationMatrix);
+                            
+                            // Get value based on dice type
+                            let value;
+                            switch (dice.type) {
+                                case "diceFour":
+                                    value = getTopD4Value(diceModelMatrix);
+                                    break;
+                                case "diceSix":
+                                    value = getTopD6Value(diceModelMatrix);
+                                    break;
+                                case "diceEight":
+                                    value = getTopD8Value(diceModelMatrix);
+                                    break;
+                                case "diceTwelve":
+                                    value = getTopD12Value(diceModelMatrix);
+                                    break;
+                            }
+                            
+                            stoppedDice.push({
+                                type: dice.type,
+                                value: value
+                            });
+                        } else {
+                            allStopped = false;
+                        }
+                    }
+                }
+                
+                // Update the display only if dice values changed or we need to update
+                if (stoppedDice.length > 0 || needsValueUpdate) {
+                    // Display values on screen
+                    const diceValuesDisplay = document.getElementById('diceValues');
+                    if (diceValuesDisplay) {
+                        // Convert dice names to more readable format
+                        const prettyNames = {
+                            "diceFour": "D4",
+                            "diceSix": "D6", 
+                            "diceEight": "D8",
+                            "diceTwelve": "D12"
+                        };
+                        
+                        // Get total of all dice
+                        const total = stoppedDice.reduce((sum, die) => sum + die.value, 0);
+                        
+                        // Format the display text
+                        let displayText = stoppedDice.map(d => 
+                            `${prettyNames[d.type]}: ${d.value}`
+                        ).join(" + ");
+                        
+                        // Add total if more than one die
+                        if (stoppedDice.length > 1) {
+                            displayText += ` = ${total}`;
+                        }
+                        
+                        diceValuesDisplay.textContent = displayText;
+                    }
+                } else if (allStopped && diceList.length === 0) {
+                    // Clear display when no dice
+                    const diceValuesDisplay = document.getElementById('diceValues');
+                    if (diceValuesDisplay) {
+                        diceValuesDisplay.textContent = "";
+                    }
+                }
+                
+                // If all dice are asleep, we can stop checking values until they wake up
+                allDiceAsleep = allSleeping && diceList.length > 0;
+                if (allDiceAsleep) {
+                    needsValueUpdate = false; // Values are now up to date
+                }
+                
+                return allStopped;
+            }
+
             // setting up of physics
             const world = new CANNON.World();
             world.gravity.set(0, -9.82, 0); // earth's gravity
             world.broadphase = new CANNON.NaiveBroadphase();
-            world.solver.iterations = 5; // Higher == more accurate but slower
+            world.solver.iterations = 10; // Higher == more accurate but slower
+            world.defaultContactMaterial.contactEquationStiffness = 1e6; // Stiffer contacts
+            world.defaultContactMaterial.contactEquationRelaxation = 4;  // More relaxation
+
+            // Add these parameters to your world initialization around line 848
+            world.allowSleep = true;
+            world.sleepTimeLimit = 0.015; // Time (seconds) object must be still before sleeping
+            world.sleepSpeedLimit = 0.05; // Speed limit below which object is considered still
 
             // materials for collisions
             const diceMaterial = new CANNON.Material("diceMaterial");
@@ -894,9 +1217,6 @@
                 world.addBody(wallBody);
             }
 
-            // For Rotation
-            let rotationSpeed = 0.005;
-            let isRotating = true;
             let lastTime = 0;
             function animate(currentTime) {
                 // Convert to seconds
@@ -936,6 +1256,12 @@
                 
                 // Step physics world
                 world.step(1/60, deltaTime, 10);
+                forceSleepIfNeeded();
+                
+                // Check dice values every frame when dice are settling
+                // This is more responsive than checking only once per second
+                const allStopped = checkDiceValues();
+                
 
                 drawScene();
                 requestAnimationFrame(animate);
@@ -1268,21 +1594,32 @@
                 let shape, size;
                 switch(type) {
                     case "diceFour":
-                        // Define vertices of the tetrahedron
+                        // Create a modified tetrahedron with slightly flattened vertices to improve stability
                         const d4Vertices = [
                             new CANNON.Vec3(0.25, 0.25, 0.25),    // V0
                             new CANNON.Vec3(-0.25, -0.25, 0.25),  // V1
                             new CANNON.Vec3(-0.25, 0.25, -0.25),  // V2
                             new CANNON.Vec3(0.25, -0.25, -0.25)   // V3
                         ];
-                        // Define faces as arrays of indices into the vertices array
+                        
+                        // Add tiny offset to lower center of mass slightly (makes it more stable)
+                        for (let i = 0; i < d4Vertices.length; i++) {
+                            d4Vertices[i].y -= 0.02; // Slight downward shift of all vertices
+                        }
+                        
                         const d4Faces = [
                             [0, 1, 2], // Face 1
                             [0, 1, 3], // Face 2
                             [0, 2, 3], // Face 3
                             [1, 2, 3]  // Face 4
                         ];
+                        
                         shape = new CANNON.ConvexPolyhedron(d4Vertices, d4Faces);
+                        
+                        // Higher angular damping specifically for D4
+                        angularDamping = 0.7;  // Much higher than default
+                        linearDamping = 0.3;   // Higher than default
+                        
                         size = 0.25;
                         break;
                     case "diceSix":
@@ -1379,18 +1716,15 @@
                     material: diceMaterial,
                     shape: shape,
                     position: new CANNON.Vec3(x, y, z),
-                    // Initial rotation
-                    //quaternion: new CANNON.Quaternion().setFromEuler(
-                    //    Math.random() * Math.PI * 2,
-                    //    Math.random() * Math.PI * 2,
-                    //    Math.random() * Math.PI * 2
-                    //),
                     quaternion: new CANNON.Quaternion(0,0,0,1),
-                    // Angular damping to slow down rotation naturally
-                    angularDamping: 0.3,
-                    // Linear damping for air resistance effects
-                    linearDamping: 0.1,
-                    allowSleep: false
+                    // Use custom damping values if defined
+                    angularDamping: angularDamping || 0.3,
+                    linearDamping: linearDamping || 0.1,
+                    allowSleep: true,
+                    sleepSpeedLimit: 0.05,
+                    sleepTimeLimit: 1.0,
+                    // EXTRA SETTINGS FOR D4:
+                    fixedRotation: type === "diceFour" ? true : false,  // Only during floating state
                 });
 
                 // Random initial velocity and angular velocity
@@ -1475,9 +1809,23 @@
             }
 
             function rollDice() {
+                needsValueUpdate = true;
+                lastRollTime = Date.now();
+                
                 for (let i = 0; i < diceList.length; i++) {
                     const dice = diceList[i]; // This was the correct part
                     if (!dice.body) continue;
+
+                    // For any dice that are sleeping, wake them up
+                    if (dice.body.sleepState === CANNON.Body.SLEEPING) {
+                        dice.body.wakeUp();
+                    }
+
+                    // Temporarily disable sleeping to ensure the dice move freely during initial roll
+                    dice.body.allowSleep = false;
+                    
+                    // Reset value calculation flag
+                    dice.valueCalculated = false;
                     
                     // Change to active physics
                     if (dice.floating) {
@@ -1487,13 +1835,16 @@
                         // Create a completely new body with the same properties but with mass
                         const oldBody = dice.body;
                         const newBody = new CANNON.Body({
-                            mass: 0.5, // Active mass
+                            mass: dice.type === "diceFour" ? 0.8 : 0.5, // Higher mass for D4
                             material: diceMaterial,
                             shape: oldBody.shapes[0],
                             position: new CANNON.Vec3().copy(oldBody.position),
                             quaternion: new CANNON.Quaternion().copy(oldBody.quaternion),
-                            angularDamping: 0.3,
-                            linearDamping: 0.1
+                            angularDamping: dice.type === "diceFour" ? 0.7 : 0.3,
+                            linearDamping: dice.type === "diceFour" ? 0.3 : 0.1,
+                            allowSleep: false,
+                            sleepSpeedLimit: 0.05,
+                            sleepTimeLimit: 1.0
                         });
                         
                         // Remove old body and add new one
@@ -1551,6 +1902,68 @@
                         );
                     }
                 }
+                // Schedule re-enabling of sleep after dice have had time to start moving
+                setTimeout(enableDiceSleep, 500);
+            }
+
+            function enableDiceSleep() {
+                for (let i = 0; i < diceList.length; i++) {
+                    const dice = diceList[i];
+                    if (dice.body) {
+                        // Re-enable sleeping
+                        dice.body.allowSleep = true;
+                    }
+                }
+            }
+
+            function forceSleepIfNeeded() {
+                // Don't apply this to dice that were just rolled
+                if (Date.now() - lastRollTime < 2000) return;
+                
+                for (let i = 0; i < diceList.length; i++) {
+                    const dice = diceList[i];
+                    if (!dice.body || dice.body.sleepState === CANNON.Body.SLEEPING) continue;
+                    
+                    const linVelMagnitude = dice.body.velocity.lengthSquared();
+                    const angVelMagnitude = dice.body.angularVelocity.lengthSquared();
+                    
+                    // Special case for D4 - more aggressive sleep forcing
+                    if (dice.type === "diceFour") {
+                        // D4 needs stricter sleep conditions
+                        if (linVelMagnitude < 0.005 && angVelMagnitude < 0.005) {
+                            dice.body.sleep();
+                            
+                            // Once sleeping, check if the D4 is balancing on a vertex
+                            // If so, apply a small impulse to make it fall onto a face
+                            const pos = dice.body.position;
+                            if (pos.y > FLOOR_Y + 0.15) { // If suspiciously high off the floor
+                                // Apply a small random impulse to tip it over
+                                const randomAngle = Math.random() * Math.PI * 2;
+                                dice.body.applyImpulse(
+                                    new CANNON.Vec3(
+                                        Math.cos(randomAngle) * 0.01,
+                                        0,
+                                        Math.sin(randomAngle) * 0.01
+                                    ),
+                                    new CANNON.Vec3(pos.x, pos.y, pos.z)
+                                );
+                                dice.body.wakeUp();
+                            }
+                        }
+                    } else {
+                        // Normal dice - use standard sleep checks
+                        if (linVelMagnitude < 0.001 && angVelMagnitude < 0.001) {
+                            const now = Date.now();
+                            if (!dice.stableStart) {
+                                dice.stableStart = now;
+                            } else if (now - dice.stableStart > 500) {
+                                dice.body.sleep();
+                            }
+                        } else {
+                            dice.stableStart = null;
+                        }
+                    }
+                }
             }
 
             document.getElementById("diceFourBtn").addEventListener("click", () => addDice("diceFour"));
@@ -1577,6 +1990,7 @@
         <button class="diceBtn" id="removeDiceBtn">Remove</button>
         <button class="diceBtn" id="rollDiceBtn">Roll</button>
     </div>
+    <div id="diceValues" style="position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background-color: rgba(0,0,0,0.7); color: white; padding: 10px 20px; border-radius: 5px; font-size: 18px; font-family: Arial, sans-serif; text-align: center;"></div>
 </body>
 
 </html>

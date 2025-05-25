@@ -84,6 +84,11 @@
                 console.log("Failed to retrieve the <canvas> element");
             }
 
+            let diceSounds = [];
+            let diceCollisionFlags = [];
+
+            loadDiceSounds();
+
             let allDicesAsleep = false;
             let needsValueUpdate = true;
             let lastRollTime = 0;
@@ -224,6 +229,78 @@
             const d4FaceUVBuffer = gl.createBuffer();
             gl.bindBuffer(gl.ARRAY_BUFFER, d4FaceUVBuffer);
             gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(d4FaceUVs), gl.STATIC_DRAW);
+
+            let soundsLoaded = false;
+
+            function loadDiceSounds(){
+                diceSounds = [];
+
+                const sound1 = new Audio('1-dice.mp3');
+                const sound2 = new Audio('1-dice 2.mp3');
+                const sound3 = new Audio('1-dice 3.mp3');
+                const sound4 = new Audio('1-dice 4.mp3');
+
+                // Add load event listeners to track loading completion
+                const soundElements = [sound1, sound2, sound3, sound4];
+                let loadedCount = 0;
+
+                soundElements.forEach(sound => {
+                        // Handle successful load
+                        sound.addEventListener('canplaythrough', function onCanPlay() {
+                            loadedCount++;
+                            // Remove the event listener to avoid duplicates
+                            sound.removeEventListener('canplaythrough', onCanPlay);
+                            
+                            // Once all sounds are loaded, add them to the array
+                            if (loadedCount === soundElements.length) {
+                                diceSounds.push(sound1, sound2, sound3, sound4);
+                                soundsLoaded = true;
+                                console.log("All dice sounds loaded successfully");
+                            }
+                        });
+                        
+                        // Handle loading errors
+                        sound.addEventListener('error', function(e) {
+                            console.error("Error loading sound:", e);
+                        });
+                        
+                        // Initiate loading
+                        sound.load();
+                    });
+                    
+                    // Add fallback in case the sounds don't load within 5 seconds
+                    setTimeout(() => {
+                        if (!soundsLoaded) {
+                            console.warn("Sound loading timed out, using empty sounds");
+                            // Create silent audio elements as fallback
+                            for (let i = 0; i < 4; i++) {
+                                const silentSound = new Audio("data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA");
+                                diceSounds.push(silentSound);
+                            }
+                            soundsLoaded = true;
+                        }
+                    }, 5000);
+            }
+
+            function playRandomDiceSound(){
+                // Don't try to play sounds if they're not loaded
+                if (!soundsLoaded || diceSounds.length === 0) {
+                    console.warn("Dice sounds not loaded yet, skipping sound playback");
+                    return;
+                }
+                
+                try {
+                    const randomIndex = Math.floor(Math.random() * diceSounds.length);
+                    // Create a new audio instance to allow overlapping sounds
+                    const sound = diceSounds[randomIndex].cloneNode();
+                    sound.volume = 1;
+                    sound.play().catch(err => {
+                        console.warn("Failed to play sound:", err);
+                    });
+                } catch (err) {
+                    console.error("Error playing dice sound:", err);
+                }
+            }
 
             // Helper to create D4 face geometry (vertices offset along normal)
             function createD4TexturedFace(vIndices, allVertices, S, offsetAmount) {
@@ -1302,7 +1379,7 @@
             const world = new CANNON.World();
             world.gravity.set(0, -9.82, 0); // earth's gravity
             world.broadphase = new CANNON.NaiveBroadphase();
-            world.solver.iterations = 10; // Higher == more accurate but slower
+            world.solver.iterations = 15; // Higher == more accurate but slower
             world.defaultContactMaterial.contactEquationStiffness = 1e6; // Stiffer contacts
             world.defaultContactMaterial.contactEquationRelaxation = 4;  // More relaxation
 
@@ -1754,6 +1831,9 @@
                 const y = FLOOR_Y + 1.5; // Start above the floor
                 const z = Math.sin(angle) * radius;
 
+                let angularDamping = 0.3;
+                let linearDamping = 0.1;
+
                 // Create a physics body based on dice type
                 let shape, size;
                 switch(type) {
@@ -1910,6 +1990,7 @@
                 // Add body to physics world
                 world.addBody(body);
 
+                const diceIndex = diceList.length;
                 diceList.push({
                     type: type,
                     index: diceList.length,
@@ -1920,10 +2001,19 @@
                         Math.random() - 0.5,
                         Math.random() - 0.5,
                         Math.random() - 0.5
-                    ]
+                    ],
+                    hasCollided: false, // new property to track first collision
                 });
-                
-                
+
+                // add collision event listener
+                body.addEventListener("collide", function(event){
+                    const dice = diceList.find(d => d.body.id == body.id);
+                    if (dice && !dice.hasCollided){
+                        // first collision detected
+                        dice.hasCollided = true;
+                        playRandomDiceSound();
+                    }
+                })    
             }
 
             function createSafeConvexPolyhedron(vertices, faces) {
@@ -1993,6 +2083,9 @@
                     
                     // Change to active physics
                     if (dice.floating) {
+                        // reset collision flag when rolling the dice
+                        dice.hasCollided = false;
+
                         // Change mass to make it affected by gravity
                         dice.floating = false;
                         
@@ -2010,6 +2103,13 @@
                             sleepSpeedLimit: 0.05,
                             sleepTimeLimit: 1.0
                         });
+
+                        newBody.addEventListener("collide", function(event){
+                            if(!dice.hasCollided){
+                                dice.hasCollided = true;
+                                playRandomDiceSound();
+                            }
+                        })
                         
                         // Remove old body and add new one
                         world.removeBody(oldBody);
@@ -2064,6 +2164,11 @@
                             (Math.random() - 0.5) * 10,
                             (Math.random() - 0.5) * 10
                         );
+
+                        // sound plays after sometime when re-tossed from the ground
+                        setTimeout(() => {
+                            dice.hasCollided = false;
+                        }, 200);
                     }
                 }
                 // Schedule re-enabling of sleep after dice have had time to start moving

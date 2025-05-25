@@ -1377,7 +1377,7 @@
 
             // setting up of physics
             const world = new CANNON.World();
-            world.gravity.set(0, -9.82, 0); // earth's gravity
+            world.gravity.set(0, -15.82, 0); // increased gravity from (-9.82) earth's gravity to not make the dice look gigantic
             world.broadphase = new CANNON.NaiveBroadphase();
             world.solver.iterations = 15; // Higher == more accurate but slower
             world.defaultContactMaterial.contactEquationStiffness = 1e6; // Stiffer contacts

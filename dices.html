@@ -816,6 +816,170 @@
                 let rotationSpeed = 0.005;
                 let isRotating = true;
 
+                // Get the value of the D4 Dice
+                // ONLY CALL THIS AFTER THE ROLL
+                function getTopD4Value(modelMatrix) {
+                    const diceFourPerVer = [
+                        [ 0.25,  0.25,  0.25, 1.0],  // V0
+                        [-0.25, -0.25,  0.25, 1.0],  // V1
+                        [-0.25,  0.25, -0.25, 1.0],  // V2
+                        [ 0.25, -0.25, -0.25, 1.0]   // V3
+                    ];
+
+                    let maxY = -Infinity;
+                    let topVertexIndex = -1;
+
+                    for (let i = 0; i < diceFourPerVer.length; i++) {
+                        const v = diceFourPerVer[i];
+                        const vertex = vec4.fromValues(v[0], v[1], v[2], v[3]);
+                        const transformed = vec4.create();
+                        vec4.transformMat4(transformed, vertex, modelMatrix);
+
+                        if (transformed[1] > maxY) {
+                            maxY = transformed[1];
+                            topVertexIndex = i;
+                        }
+                    }
+
+                    const valueMap = [1, 3, 4, 2];
+                    return valueMap[topVertexIndex];
+                }
+
+
+                // Get the value of the D6 Dice
+                // ONLY CALL THIS AFTER THE ROLL
+                function getTopD6Value () {
+                    const faceCenters = {
+                        front:  [ 0.0,  0.0,  0.25, 1.0],
+                        back:   [ 0.0,  0.0, -0.25, 1.0],
+                        top:    [ 0.0,  0.25,  0.0,  1.0],
+                        bottom: [ 0.0, -0.25,  0.0,  1.0],
+                        right:  [ 0.25, 0.0,  0.0,  1.0],
+                        left:   [-0.25, 0.0,  0.0,  1.0]
+                    };
+
+                    // Map face names to die values based on texture mapping
+                    const faceToValue = {
+                        top: 2,
+                        bottom: 5,
+                        front: 1,
+                        back: 6,
+                        right: 3,
+                        left: 4
+                    };
+
+                    let topFace = null;
+                    let maxY = -Infinity;
+
+                    for (const [face, center] of Object.entries(faceCenters)) {
+                        const transformed = vec4.create();
+                        const original = vec4.fromValues(...center);
+                        vec4.transformMat4(transformed, original, modelMatrix);
+
+                        if (transformed[1] > maxY) {
+                            maxY = transformed[1];
+                            topFace = face;
+                        }
+                    }
+
+                    return faceToValue[topFace];
+                }
+
+                // Get the value of the D8 Dice
+                // ONLY CALL THIS AFTER THE ROLL
+                function getTopD8Value(modelMatrix) {
+                    let maxY = -Infinity;
+                    let topFaceIndex = -1;
+
+                    // Each face is 3 indices, so loop in steps of 3
+                    for (let i = 0; i < diceEightIndices.length; i += 3) {
+                        const idx0 = diceEightIndices[i] * 4;
+                        const idx1 = diceEightIndices[i + 1] * 4;
+                        const idx2 = diceEightIndices[i + 2] * 4;
+
+                        const v0 = vec4.fromValues(
+                            diceEight[idx0], diceEight[idx0 + 1], diceEight[idx0 + 2], diceEight[idx0 + 3]
+                        );
+                        const v1 = vec4.fromValues(
+                            diceEight[idx1], diceEight[idx1 + 1], diceEight[idx1 + 2], diceEight[idx1 + 3]
+                        );
+                        const v2 = vec4.fromValues(
+                            diceEight[idx2], diceEight[idx2 + 1], diceEight[idx2 + 2], diceEight[idx2 + 3]
+                        );
+
+                        // Average the three vertices to get the center point of the face
+                        const center = vec4.fromValues(
+                            (v0[0] + v1[0] + v2[0]) / 3,
+                            (v0[1] + v1[1] + v2[1]) / 3,
+                            (v0[2] + v1[2] + v2[2]) / 3,
+                            1.0
+                        );
+
+                        // Transform the center using modelMatrix
+                        const transformedCenter = vec4.create();
+                        vec4.transformMat4(transformedCenter, center, modelMatrix);
+
+                        if (transformedCenter[1] > maxY) {
+                            maxY = transformedCenter[1];
+                            topFaceIndex = i / 3;
+                        }
+                    }
+
+                    const valueMap = [1, 2, 3, 4, 5, 6, 7, 8];
+                    const topValue = valueMap[topFaceIndex];
+
+                    return topValue;
+                }
+
+
+                 // Get the value of the D12 Dice
+                // ONLY CALL THIS AFTER THE ROLL
+                function getTopD12Value(modelMatrix) {
+                    let maxY = -Infinity;
+                    let topFaceIndex = -1;
+
+                    // D12 vertex positions use 3 components per vertex
+                    const numTriangles = diceTwelveIndices.length / 3;
+
+                    for (let i = 0; i < diceTwelveIndices.length; i += 3) {
+                        const idx0 = diceTwelveIndices[i] * 3;
+                        const idx1 = diceTwelveIndices[i + 1] * 3;
+                        const idx2 = diceTwelveIndices[i + 2] * 3;
+
+                        const v0 = vec4.fromValues(
+                            diceTwelve[idx0], diceTwelve[idx0 + 1], diceTwelve[idx0 + 2], 1.0
+                        );
+                        const v1 = vec4.fromValues(
+                            diceTwelve[idx1], diceTwelve[idx1 + 1], diceTwelve[idx1 + 2], 1.0
+                        );
+                        const v2 = vec4.fromValues(
+                            diceTwelve[idx2], diceTwelve[idx2 + 1], diceTwelve[idx2 + 2], 1.0
+                        );
+
+                        // Compute face center
+                        const center = vec4.fromValues(
+                            (v0[0] + v1[0] + v2[0]) / 3,
+                            (v0[1] + v1[1] + v2[1]) / 3,
+                            (v0[2] + v1[2] + v2[2]) / 3,
+                            1.0
+                        );
+
+                        // Transform the center using model matrix
+                        const transformedCenter = vec4.create();
+                        vec4.transformMat4(transformedCenter, center, modelMatrix);
+
+                        // Track highest Y
+                        if (transformedCenter[1] > maxY) {
+                            maxY = transformedCenter[1];
+                            topFaceIndex = Math.floor(i / 9); // 9 indices = 3 triangles per pentagon
+                        }
+                    }
+
+                    const faceValues = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+                    return faceValues[topFaceIndex];
+                }
+
+
                 function animate() {
 
                     if (isRotating) {

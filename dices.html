@@ -940,7 +940,7 @@
                         }
                     }
 
-                    const valueMap = [1, 3, 4, 2];
+                    const valueMap = [4,1,2,3];
                     return valueMap[topVertexIndex];
                 }
 
@@ -1081,33 +1081,7 @@
 
             // Get the value of the D4 Dice
             // ONLY CALL THIS AFTER THE ROLL
-            function getTopD4Value(modelMatrix) {
-                const diceFourPerVer = [
-                    [ 0.25,  0.25,  0.25, 1.0],  // V0
-                    [-0.25, -0.25,  0.25, 1.0],  // V1
-                    [-0.25,  0.25, -0.25, 1.0],  // V2
-                    [ 0.25, -0.25, -0.25, 1.0]   // V3
-                ];
-
-                let maxY = -Infinity;
-                let topVertexIndex = -1;
-
-                for (let i = 0; i < diceFourPerVer.length; i++) {
-                    const v = diceFourPerVer[i];
-                    const vertex = vec4.fromValues(v[0], v[1], v[2], v[3]);
-                    const transformed = vec4.create();
-                    vec4.transformMat4(transformed, vertex, modelMatrix);
-
-                    if (transformed[1] > maxY) {
-                        maxY = transformed[1];
-                        topVertexIndex = i;
-                    }
-                }
-
-                const valueMap = [1, 3, 4, 2];
-                return valueMap[topVertexIndex];
-            }
-
+            
             // Get the value of the D6 Dice
             // ONLY CALL THIS AFTER THE ROLL
             function getTopD6Value(modelMatrix) {

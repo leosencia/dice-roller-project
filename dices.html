@@ -134,6 +134,16 @@
             const FLOOR_Y = -0.5;         // Y-position of the floor
             const MAX_DICE = 2;           // Maximum number of dice allowed
 
+            // Highroll management
+            const maxDiceValues = {
+                diceFour: 4,
+                diceSix: 6,
+                diceEight: 8,
+                diceTwelve: 12
+            };
+
+            let highRollActive = false;
+
             // Dice management
             let diceList = [];
 
@@ -1512,7 +1522,31 @@
                 if (allDiceAsleep) {
                     needsValueUpdate = false; // Values are now up to date
                 }
-                
+
+                // Check if exactly two dice have stopped rolling
+                // *Implement highroll if the result is the maximum possible sum of the dice
+                if (stoppedDice.length === 2) {
+                    let maxSum = 0;
+                    for (let d of stoppedDice) {
+                        maxSum += maxDiceValues[d.type] || 6;   // Use max value for each dice type, default to 6 if unknown
+                    }
+
+                    // Calculate the sum of the two dice's rolled values
+                    const sum = stoppedDice.reduce((sum, d) => sum + d.value, 0);
+
+                    // Highroll if actual sum matches the maximum possible sum
+                    if (sum === maxSum) {
+                        if (!highRollActive) {
+                            highRollActive = true;
+                            highRoll();    // Trigger highroll 
+                        }
+                    } else {
+                        highRollActive = false;  // Reset when result is no longer max
+                    }
+                } else {
+                    highRollActive = false;  // Reset when dice count is not 2
+                }
+
                 return allStopped;
             }
 
@@ -2261,6 +2295,7 @@
             }
 
             function rollDice() {
+                highRollActive = false;
                 needsValueUpdate = true;
                 lastRollTime = Date.now();
                 
@@ -2432,48 +2467,50 @@
                     }
                 }
             }
+            
 
-                function highRoll() {
-                    const originalDiffuse = [1.0, 1.0, 1.0, 1.0];
-                    const originalAmbient = [0.5, 0.5, 0.5, 1.0];
+            function highRoll() {
+                const originalDiffuse = [1.0, 1.0, 1.0, 1.0];
+                const originalAmbient = [0.5, 0.5, 0.5, 1.0];
 
-                    const duration = 3000;
-                    const flashSpeed = 100;
-                    const startTime = Date.now();
+                const duration = 3000;
+                const flashSpeed = 100;
+                const startTime = Date.now();
 
-                    function getRandomColor() {
-                        return [
-                            Math.random(),  //R
-                            Math.random(),  //G
-                            Math.random(),  //B
-                            1.0             //A
-                        ];
-                    }
-
-                    function animateHighRoll() {
-                        const elapsed = Date.now() - startTime;
-
-                        if (elapsed < duration) {
-                            const newColor = getRandomColor();
-                            gl.uniform4f(uLightDiffuseColor, ...newColor);
-                            const ambientColor = newColor.map(c => c * 0.5);
-                            gl.uniform4f(uLightAmbientColor, ...ambientColor);
-
-                            setTimeout(animateHighRoll, flashSpeed);
-                        } else {
-                            gl.uniform4f(uLightDiffuseColor, ...originalDiffuse);
-                            gl.uniform4f(uLightAmbientColor, ...originalAmbient);
-                        }
-                    }
-
-                    animateHighRoll();
+                function getRandomColor() {
+                    return [
+                        Math.random(),  //R
+                        Math.random(),  //G
+                        Math.random(),  //B
+                        1.0             //A
+                    ];
                 }
+
+                function animateHighRoll() {
+                    const elapsed = Date.now() - startTime;
+
+                    if (elapsed < duration) {
+                        const newColor = getRandomColor();
+                        gl.uniform4f(uLightDiffuseColor, ...newColor);
+                        const ambientColor = newColor.map(c => c * 0.5);
+                        gl.uniform4f(uLightAmbientColor, ...ambientColor);
+
+                        setTimeout(animateHighRoll, flashSpeed);
+                    } else {
+                        gl.uniform4f(uLightDiffuseColor, ...originalDiffuse);
+                        gl.uniform4f(uLightAmbientColor, ...originalAmbient);
+                    }
+                }
+
+                animateHighRoll();
+            }
 
             document.getElementById("diceFourBtn").addEventListener("click", () => addDice("diceFour"));
             document.getElementById("diceSixBtn").addEventListener("click", () => addDice("diceSix"));
             document.getElementById("diceEightBtn").addEventListener("click", () => addDice("diceEight"));
             document.getElementById("diceTwelveBtn").addEventListener("click", () => addDice("diceTwelve"));
             document.getElementById("removeDiceBtn").addEventListener("click", removeDice);
+            // document.getElementById("highRollBtn").addEventListener("click", highRoll);
             document.getElementById("rollDiceBtn").addEventListener('click', rollDice);
             document.addEventListener("keydown", function(event){
                 // check is space bar is pressed (key code == 32)
@@ -2501,7 +2538,7 @@
             <button class="diceBtn" id="diceEightBtn">D8</button>
             <button class="diceBtn" id="diceTwelveBtn">D12</button>
             <button class="diceBtn" id="removeDiceBtn">Remove</button>
-            <button class="diceBtn" id="celebrateBtn">High Roll</button>
+            <!-- <button class="diceBtn" id="highRollBtn">High Roll</button> -->
         </div>
         <button class="diceBtn" id="rollDiceBtn">Roll</button>
         <h1 style="color: white; font-size: large">or press the 'Spacebar'!</h1>
